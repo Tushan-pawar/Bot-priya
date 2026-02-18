@@ -1,0 +1,37 @@
+# PRIYA INTEGRATED SYSTEM REQUIREMENTS
+# ONE SOLID FOUNDATION - ALL CAPABILITIES
+
+# Discord Bot
+discord.py==2.3.2
+
+# Multi-Model AI System
+ollama==0.1.7
+aiohttp==3.9.1
+requests==2.31.0
+
+# Voice Processing (Optional)
+faster-whisper==0.10.0
+TTS==0.22.0
+
+# Web Browsing & News
+beautifulsoup4==4.12.2
+feedparser==6.0.10
+lxml==4.9.3
+
+# Image Generation & Processing
+Pillow==10.0.0
+opencv-python==4.8.0.76
+numpy==1.24.3
+
+# Music Generation (Built-in modules)
+# wave, struct, math - Built-in
+
+# Code Execution (Built-in modules)
+# subprocess, tempfile - Built-in
+
+# Utilities
+python-dotenv==1.0.0
+urllib3==2.0.7
+
+# Optional: Enhanced features
+youtube-dl==2021.12.17
