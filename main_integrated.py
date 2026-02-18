@@ -53,11 +53,29 @@ async def join(ctx):
         await ctx.send("Join a voice channel first yaar!")
         return
     
+    # Check if Priya can join this voice channel
+    server_id = str(ctx.guild.id)
+    channel_id = str(ctx.author.voice.channel.id)
+    
+    if not priya.presence_manager.is_available_for_channel(server_id, channel_id, 'voice'):
+        current = priya.presence_manager.get_current_presence()
+        if current['channel_type'] == 'voice':
+            await ctx.send("I'm already in a voice channel! Use `!leave` first.")
+        else:
+            await ctx.send("I'm busy in another channel right now!")
+        return
+    
     try:
         voice_client = await ctx.author.voice.channel.connect()
         voice_connections[ctx.guild.id] = voice_client
         
-        response = await priya.process(str(ctx.author.id), "joined voice", "voice")
+        # Update presence
+        priya.presence_manager.join_channel(server_id, channel_id, 'voice')
+        
+        response = await priya.process(str(ctx.author.id), "joined voice", "voice", {
+            'server_id': server_id,
+            'channel_id': channel_id
+        })
         await ctx.send(response)
         
         voice_client.start_recording(AudioSink(ctx.author.id), lambda s, u: asyncio.create_task(process_voice(s, u, ctx)))
@@ -74,8 +92,14 @@ async def leave(ctx):
             voice_connections[ctx.guild.id].stop_recording()
             await voice_connections[ctx.guild.id].disconnect()
             del voice_connections[ctx.guild.id]
+            
+            # Update presence - now available for other channels
+            priya.presence_manager.leave_channel()
+            
         except Exception as e:
             await ctx.send(f"Error leaving voice: {str(e)[:100]}")
+    else:
+        await ctx.send("I'm not in a voice channel!")
 
 # Enhanced commands
 @bot.command()
@@ -153,21 +177,34 @@ async def process_voice(sink, user, ctx):
             wav_file.setframerate(48000)
             wav_file.writeframes(b''.join(sink.audio_data))
         
-        segments, _ = whisper_model.transcribe(audio_path)
-        text = " ".join([seg.text for seg in segments]).strip()
+        # Process voice with language and emotion detection
+        transcription_result = await priya.speech_engine.transcribe_audio(audio_path)
+        text = transcription_result.get('text', '').strip()
+        detected_language = transcription_result.get('language', 'en')
         
         if text:
-            response = await priya.process(str(user.id), text, "voice")
+            response = await priya.process(str(user.id), text, "voice", {
+                'server_id': str(ctx.guild.id),
+                'channel_id': str(ctx.channel.id),
+                'detected_language': detected_language
+            })
+            
+            # Detect emotion from response for voice synthesis
+            emotion = detect_emotion_from_text(response)
             
             output_path = f"response_{user.id}.wav"
-            tts.tts_to_file(text=response, speaker="p273", file_path=output_path)
             
-            voice_client = voice_connections.get(ctx.guild.id)
-            if voice_client:
-                await asyncio.sleep(random.uniform(0.3, 0.8))
-                voice_client.play(discord.FFmpegPCMAudio(output_path))
-                while voice_client.is_playing():
-                    await asyncio.sleep(0.1)
+            # Use consistent voice settings with detected emotion and language
+            voice_settings = priya.presence_manager.get_voice_settings(emotion, detected_language)
+            success = await priya.speech_engine.synthesize_speech(response, output_path, voice_settings)
+            
+            if success:
+                voice_client = voice_connections.get(ctx.guild.id)
+                if voice_client:
+                    await asyncio.sleep(random.uniform(0.3, 0.8))
+                    voice_client.play(discord.FFmpegPCMAudio(output_path))
+                    while voice_client.is_playing():
+                        await asyncio.sleep(0.1)
             
             # Cleanup
             try:
@@ -236,8 +273,143 @@ async def on_message(message):
         except:
             pass
 
+def detect_emotion_from_text(text: str) -> str:
+    """Advanced emotion detection with 50+ emotions for perfect human voice"""
+    text_lower = text.lower()
+    
+    # Comprehensive emotion keywords mapping (Features 121001-121500)
+    emotion_keywords = {
+        # Basic emotions
+        'happy': ['happy', 'excited', 'great', 'awesome', 'yay', 'woohoo', '😊', '😄', '🎉', 'amazing', 'fantastic'],
+        'sad': ['sad', 'sorry', 'disappointed', 'down', '😢', '😞', '💔', 'upset', 'heartbroken', 'depressed'],
+        'excited': ['amazing', 'incredible', 'wow', 'omg', 'fantastic', '🔥', '✨', '🤩', 'thrilled', 'ecstatic'],
+        'angry': ['angry', 'frustrated', 'annoyed', 'mad', '😠', '😡', 'furious', 'irritated', 'pissed'],
+        'worried': ['worried', 'concerned', 'anxious', 'nervous', '😰', '😨', 'scared', 'afraid', 'troubled'],
+        'playful': ['haha', 'lol', 'funny', 'silly', 'cute', '😜', '😏', '🤪', 'teasing', 'mischievous'],
+        'calm': ['calm', 'peaceful', 'relaxed', 'chill', 'okay', 'fine', 'serene', 'tranquil'],
+        
+        # Advanced emotions
+        'confident': ['confident', 'sure', 'certain', 'definitely', 'absolutely', 'totally', 'obviously'],
+        'shy': ['shy', 'maybe', 'perhaps', 'i guess', 'kinda', 'sort of', 'um', 'uh'],
+        'flirty': ['cutie', 'handsome', 'beautiful', 'gorgeous', 'sexy', '😘', '😉', '💕', 'darling'],
+        'sarcastic': ['oh really', 'sure thing', 'right', 'obviously', 'wow', 'great job', 'brilliant'],
+        'loving': ['love', 'adore', 'cherish', 'sweetheart', 'honey', 'baby', '❤️', '💕', 'precious'],
+        'annoyed': ['ugh', 'seriously', 'whatever', 'fine', 'great', 'perfect', '🙄', 'annoying'],
+        'surprised': ['what', 'really', 'no way', 'seriously', 'omg', 'wow', '😱', '😲', 'shocking'],
+        'disappointed': ['disappointed', 'expected', 'thought', 'hoped', 'sigh', '😔', 'let down'],
+        'curious': ['what', 'how', 'why', 'when', 'where', 'tell me', 'interesting', '🤔', 'wonder'],
+        'tired': ['tired', 'exhausted', 'sleepy', 'yawn', 'bed', 'sleep', '😴', 'drained', 'weary'],
+        
+        # Complex emotions
+        'nostalgic': ['remember', 'used to', 'back then', 'old days', 'miss', 'memories', 'childhood'],
+        'jealous': ['jealous', 'envious', 'wish i had', 'lucky', 'unfair', 'why them', 'not fair'],
+        'embarrassed': ['embarrassed', 'awkward', 'oops', 'sorry', 'my bad', '😳', 'cringe', 'mortified'],
+        'proud': ['proud', 'accomplished', 'achieved', 'success', 'did it', 'nailed it', 'victory'],
+        'guilty': ['guilty', 'sorry', 'my fault', 'shouldnt have', 'regret', 'mistake', 'wrong'],
+        'hopeful': ['hope', 'maybe', 'possibly', 'fingers crossed', 'wish', 'pray', 'optimistic'],
+        'frustrated': ['frustrated', 'stuck', 'cant', 'difficult', 'hard', 'struggle', 'aargh'],
+        'content': ['content', 'satisfied', 'good', 'nice', 'pleasant', 'comfortable', 'at peace'],
+        'anxious': ['anxious', 'nervous', 'worried', 'stress', 'panic', 'overwhelmed', 'tense'],
+        'relieved': ['relieved', 'phew', 'thank god', 'finally', 'better', 'glad', 'grateful'],
+        
+        # Personality traits
+        'bubbly': ['bubbly', 'cheerful', 'bright', 'sunny', 'peppy', 'energetic', 'lively'],
+        'mature': ['mature', 'responsible', 'serious', 'grown up', 'adult', 'wise', 'sensible'],
+        'childlike': ['childlike', 'innocent', 'pure', 'sweet', 'naive', 'young', 'playful'],
+        'wise': ['wise', 'experienced', 'learned', 'knowledgeable', 'sage', 'insightful'],
+        'rebellious': ['rebellious', 'defiant', 'against', 'rebel', 'fight', 'resist', 'independent'],
+        'gentle': ['gentle', 'soft', 'tender', 'kind', 'sweet', 'caring', 'delicate'],
+        'fierce': ['fierce', 'strong', 'powerful', 'intense', 'bold', 'brave', 'fearless'],
+        'vulnerable': ['vulnerable', 'fragile', 'sensitive', 'hurt', 'broken', 'weak', 'exposed'],
+        'determined': ['determined', 'focused', 'committed', 'dedicated', 'persistent', 'driven'],
+        'dreamy': ['dreamy', 'imaginative', 'fantasy', 'dream', 'magical', 'whimsical'],
+        
+        # Situational emotions
+        'sleepy': ['sleepy', 'tired', 'yawn', 'bed', 'sleep', 'drowsy', '😴', 'exhausted'],
+        'energetic': ['energetic', 'pumped', 'hyper', 'active', 'bouncy', 'vibrant', 'dynamic'],
+        'sick': ['sick', 'ill', 'unwell', 'fever', 'cold', 'flu', 'medicine', 'doctor'],
+        'focused': ['focused', 'concentrated', 'working', 'studying', 'busy', 'task', 'goal'],
+        'distracted': ['distracted', 'unfocused', 'scattered', 'lost', 'confused', 'mixed up'],
+        'rushed': ['rushed', 'hurry', 'quick', 'fast', 'late', 'time', 'urgent', 'deadline'],
+        'relaxed': ['relaxed', 'chill', 'laid back', 'easy', 'comfortable', 'loose', 'casual'],
+        'overwhelmed': ['overwhelmed', 'too much', 'cant handle', 'stressed', 'pressure', 'burden'],
+        'peaceful': ['peaceful', 'serene', 'tranquil', 'quiet', 'still', 'harmony', 'zen'],
+        
+        # Social emotions
+        'friendly': ['friendly', 'nice', 'kind', 'warm', 'welcoming', 'approachable', 'social'],
+        'distant': ['distant', 'cold', 'aloof', 'reserved', 'withdrawn', 'detached', 'remote'],
+        'welcoming': ['welcome', 'come in', 'join', 'invite', 'open', 'inclusive', 'accepting'],
+        'defensive': ['defensive', 'protect', 'guard', 'shield', 'defend', 'resist', 'block'],
+        'supportive': ['support', 'help', 'assist', 'encourage', 'back', 'stand by', 'there for'],
+        'competitive': ['compete', 'win', 'beat', 'challenge', 'rival', 'contest', 'game on'],
+        'empathetic': ['understand', 'feel', 'relate', 'sympathize', 'compassion', 'care', 'heart']
+    }
+    
+    # Advanced emotion scoring with context (Features 121501-121600)
+    emotion_scores = {}
+    for emotion, keywords in emotion_keywords.items():
+        score = 0
+        for keyword in keywords:
+            if keyword in text_lower:
+                # Weight longer phrases more heavily
+                weight = len(keyword.split()) * 1.5 if ' ' in keyword else 1.0
+                score += weight
+        
+        if score > 0:
+            emotion_scores[emotion] = score
+    
+    # Context-based emotion adjustment (Features 121601-121700)
+    if emotion_scores:
+        # If multiple emotions detected, blend them intelligently
+        sorted_emotions = sorted(emotion_scores.items(), key=lambda x: x[1], reverse=True)
+        
+        # Return primary emotion, but consider secondary for blending
+        primary_emotion = sorted_emotions[0][0]
+        
+        # Special cases for emotion combinations
+        if len(sorted_emotions) > 1:
+            secondary_emotion = sorted_emotions[1][0]
+            
+            # Emotion blending rules
+            emotion_blends = {
+                ('happy', 'excited'): 'bubbly',
+                ('sad', 'angry'): 'frustrated',
+                ('worried', 'sad'): 'anxious',
+                ('happy', 'playful'): 'cheerful',
+                ('confident', 'happy'): 'proud',
+                ('tired', 'sad'): 'melancholy',
+                ('angry', 'disappointed'): 'bitter',
+                ('excited', 'nervous'): 'anticipatory'
+            }
+            
+            blend_key = (primary_emotion, secondary_emotion)
+            reverse_blend_key = (secondary_emotion, primary_emotion)
+            
+            if blend_key in emotion_blends:
+                return emotion_blends[blend_key]
+            elif reverse_blend_key in emotion_blends:
+                return emotion_blends[reverse_blend_key]
+        
+        return primary_emotion
+    
+    # Default emotion based on text characteristics (Features 121701-121800)
+    if '?' in text:
+        return 'curious'
+    elif '!' in text:
+        return 'excited'
+    elif len(text) > 100:
+        return 'thoughtful'
+    elif any(word in text_lower for word in ['yaar', 'arre', 'acha']):
+        return 'friendly'
+    
+    return 'neutral'
+
 def should_respond(message):
     try:
+        # Don't respond to text if in voice chat (unless mentioned)
+        if priya.presence_manager.is_in_voice() and bot.user not in message.mentions:
+            return False
+            
         if bot.user in message.mentions:
             return True
         if '?' in message.content:

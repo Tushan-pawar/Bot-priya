@@ -1,46 +1,73 @@
 # 🎉 PRIYA - ULTIMATE INTEGRATED SYSTEM
 
-## ✅ ONE SOLID FOUNDATION - ALL CAPABILITIES
+## ✅ HYBRID SYSTEM - LOCAL + CLOUD
 
-**EVERYTHING INTEGRATED INTO ONE SYSTEM:**
-- ✅ ALL 120,000+ features
-- ✅ 7 AI models running simultaneously  
-- ✅ Real-time web browsing & news
-- ✅ Reddit integration
-- ✅ Image generation & art creation
-- ✅ Music composition & audio
-- ✅ Code execution & programming
-- ✅ Dynamic self-learning tracker
-- ✅ Enhanced media processing
-- ✅ Discord-specific features
-- ✅ Voice chat support
-- ✅ Perfect memory system
-- ✅ Relationship building
-- ✅ Complete human simulation
+**WORKS BOTH WAYS:**
+- ✅ **Local First**: Uses local models if available (faster, unlimited)
+- ✅ **Cloud Fallback**: Uses cloud APIs if local not available
+- ✅ **Multiple Alternatives**: 12 text models + multiple speech engines
+- ✅ **Zero Downtime**: Always has working alternatives
 
-**NO STANDALONE FILES - EVERYTHING INTEGRATED!**
+### 📊 **TEXT MODELS (12 Total):**
+**Local Models (Priority 1-4):**
+- Ollama Llama 3.2, 3.1, Mistral, CodeLlama
+
+**Cloud Models (Priority 5-12):**
+- Groq (Llama 3.2, 3.1) - 6K requests/day each
+- Together AI (Llama 3.2, 3.1) - 1K requests/day each  
+- Hugging Face Llama - 10K requests/day
+- OpenRouter Mistral - 200 requests/day
+- DeepInfra Llama - 100 requests/day
+- Cohere Command - 1K requests/day
+
+### 🎤 **SPEECH ENGINES:**
+**Local Speech-to-Text:**
+- Faster Whisper (if installed)
+
+**Cloud Speech-to-Text:**
+- Groq Whisper API
+
+**Local Text-to-Speech:**
+- Coqui TTS (if installed)
+
+**Cloud Text-to-Speech:**
+- ElevenLabs API
 
 ---
 
 ## 🛠️ SETUP (5 MINUTES)
 
-### 1. Install Ollama + Models
+### 1. Install Requirements (Hybrid System)
 ```bash
-# Download Ollama from https://ollama.ai
-ollama pull llama3.2
-ollama pull llama3.1
+pip install -r requirements.txt
 ```
 
-### 2. Get FREE API Keys (Optional - for extra reliability)
+### 2. Optional: Install Local Models (for faster, unlimited usage)
 ```bash
+# Install Ollama (optional - for local text models)
+# Download from https://ollama.ai
+ollama pull llama3.2
+ollama pull llama3.1
+ollama pull mistral
+ollama pull codellama
+```
+
+### 3. Get FREE Cloud API Keys (required if no local models)
+```bash
+pip install -r requirements.txt
+```
+
+```bash
+# Text Models
 # Groq (Best performance) - https://console.groq.com
 # Together AI - https://api.together.xyz  
 # Hugging Face - https://huggingface.co/settings/tokens
-```
+# OpenRouter - https://openrouter.ai
+# DeepInfra - https://deepinfra.com
+# Cohere - https://cohere.ai
 
-### 3. Install Requirements
-```bash
-pip install -r requirements.txt
+# Speech Models (optional)
+# ElevenLabs - https://elevenlabs.io
 ```
 
 ### 4. Install FFmpeg (for voice - optional)
@@ -51,10 +78,16 @@ Download from https://ffmpeg.org and add to PATH
 # Discord (Required)
 DISCORD_TOKEN=your_discord_bot_token
 
-# API Keys (Optional - for extra reliability)
+# Text Model APIs (at least one required if no local Ollama)
 GROQ_API_KEY=your_groq_key
 TOGETHER_API_KEY=your_together_key
 HF_API_KEY=your_hf_token
+OPENROUTER_API_KEY=your_openrouter_key
+DEEPINFRA_API_KEY=your_deepinfra_key
+COHERE_API_KEY=your_cohere_key
+
+# Speech APIs (optional - for cloud speech)
+ELEVENLABS_API_KEY=your_elevenlabs_key
 ```
 
 ### 6. Run
