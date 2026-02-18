@@ -154,7 +154,7 @@ class DiscordIntegration:
                     logger.info(f"Auto-joined voice channel {after.channel.name} in {member.guild.name}")
                     
                     # Start listening for this user
-                    from ..voice.streaming_voice import streaming_voice
+                    from ..voice.optimized_streaming import streaming_voice
                     await streaming_voice.start_listening(str(member.id))
                     
                 except Exception as e:
