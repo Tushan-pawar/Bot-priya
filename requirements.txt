@@ -1,39 +1,68 @@
-# Priya Discord Bot - Production Requirements
+# Priya AI Assistant Platform - Enhanced Requirements
 
 # Core Discord Bot
 discord.py==2.3.2
 
-# AI/ML Models - Local & Cloud
-ollama==0.1.7  # Optional - for local models
+# AI/ML Models
+ollama==0.1.7
 aiohttp==3.9.1
 requests==2.31.0
 
-# Voice Processing - Local & Cloud  
-faster-whisper==0.10.0  # Optional - for local STT
-TTS==0.22.0  # Optional - for local TTS
+# Voice Processing - Streaming
+faster-whisper==0.10.0
+TTS==0.22.0
+pyaudio==0.2.11
+webrtcvad==2.0.10
+soundfile==0.12.1
 
-# Web & Data Processing
+# Memory System - Vector Database
+sqlite3  # Built-in
+faiss-cpu==1.7.4
+sentence-transformers==2.2.2
+numpy==1.24.3
+
+# Web Dashboard
+fastapi==0.104.1
+uvicorn==0.24.0
+jinja2==3.1.2
+python-multipart==0.0.6
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Data Processing
 beautifulsoup4==4.12.2
 feedparser==6.0.10
 lxml==4.9.3
-
-# Image & Media Processing
 Pillow==10.0.0
-opencv-python==4.8.0.76
-numpy==1.24.3
 
 # Configuration & Environment
 python-dotenv==1.0.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
 
 # Performance & Monitoring
-psutil==5.9.6  # Memory monitoring
-urllib3==2.0.7
+psutil==5.9.6
+asyncio-mqtt==0.16.1
 
-# Optional Enhanced Features
-emoji==2.8.0  # Enhanced emoji support
-regex==2023.10.3  # Advanced text processing
+# NEW: Tool Execution & Security
+jsonschema==4.20.0
+bleach==6.1.0
+tiktoken==0.5.2
 
-# Development & Testing (optional)
+# NEW: Background Tasks & Scheduling
+apscheduler==3.10.4
+croniter==2.0.1
+
+# NEW: Rate Limiting
+slowapi==0.1.9
+redis==5.0.1  # Optional for distributed rate limiting
+
+# NEW: Backup & Compression
+zipfile  # Built-in
+gzip  # Built-in
+pickle  # Built-in
+
+# Development & Testing
 pytest==7.4.3
 pytest-asyncio==0.21.1
 black==23.9.1
