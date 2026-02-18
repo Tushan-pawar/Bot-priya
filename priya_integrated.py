@@ -35,7 +35,215 @@ try:
 except ImportError:
     EMOJI_SUPPORT = False
 
-class EmojiEngine:
+class ActivityEngine:
+    """Manages Priya's daily schedule, activities, and availability"""
+    def __init__(self):
+        self.daily_schedule = {
+            # Monday to Friday (College days)
+            'weekday': {
+                (6, 8): {'activity': 'waking_up', 'availability': 0.3, 'mood': 'sleepy'},
+                (8, 10): {'activity': 'getting_ready', 'availability': 0.2, 'mood': 'rushed'},
+                (10, 14): {'activity': 'college_classes', 'availability': 0.1, 'mood': 'focused'},
+                (14, 15): {'activity': 'lunch_break', 'availability': 0.7, 'mood': 'hungry'},
+                (15, 17): {'activity': 'college_classes', 'availability': 0.1, 'mood': 'tired'},
+                (17, 18): {'activity': 'commute_home', 'availability': 0.4, 'mood': 'tired'},
+                (18, 19): {'activity': 'chai_time', 'availability': 0.8, 'mood': 'relaxed'},
+                (19, 21): {'activity': 'free_time', 'availability': 0.9, 'mood': 'happy'},
+                (21, 23): {'activity': 'gaming_netflix', 'availability': 0.7, 'mood': 'playful'},
+                (23, 24): {'activity': 'winding_down', 'availability': 0.4, 'mood': 'sleepy'},
+                (0, 6): {'activity': 'sleeping', 'availability': 0.05, 'mood': 'sleeping'}
+            },
+            # Saturday and Sunday (Weekend)
+            'weekend': {
+                (8, 10): {'activity': 'lazy_morning', 'availability': 0.6, 'mood': 'relaxed'},
+                (10, 12): {'activity': 'breakfast_chai', 'availability': 0.8, 'mood': 'happy'},
+                (12, 14): {'activity': 'gaming_time', 'availability': 0.9, 'mood': 'excited'},
+                (14, 15): {'activity': 'lunch', 'availability': 0.5, 'mood': 'hungry'},
+                (15, 17): {'activity': 'netflix_movies', 'availability': 0.7, 'mood': 'chill'},
+                (17, 19): {'activity': 'social_media', 'availability': 0.9, 'mood': 'social'},
+                (19, 21): {'activity': 'dinner_family', 'availability': 0.3, 'mood': 'family_time'},
+                (21, 24): {'activity': 'late_night_gaming', 'availability': 0.8, 'mood': 'energetic'},
+                (0, 8): {'activity': 'sleeping', 'availability': 0.05, 'mood': 'sleeping'}
+            }
+        }
+        
+        self.special_activities = {
+            'exam_week': {'availability': 0.2, 'mood': 'stressed', 'activity': 'studying'},
+            'sick_day': {'availability': 0.3, 'mood': 'sick', 'activity': 'resting'},
+            'birthday': {'availability': 0.9, 'mood': 'excited', 'activity': 'celebrating'},
+            'festival': {'availability': 0.8, 'mood': 'festive', 'activity': 'celebrating'}
+        }
+        
+        self.current_special_state = None
+        self.last_activity_check = None
+        self.activity_history = []
+    
+    def get_current_activity(self) -> Dict:
+        """Get current activity based on time and day"""
+        now = datetime.now()
+        hour = now.hour
+        is_weekend = now.weekday() >= 5  # Saturday = 5, Sunday = 6
+        
+        # Check for special states first
+        if self.current_special_state:
+            special = self.special_activities[self.current_special_state]
+            return {
+                'activity': special['activity'],
+                'availability': special['availability'],
+                'mood': special['mood'],
+                'type': 'special',
+                'description': f"Currently {special['activity']} - {self.current_special_state}"
+            }
+        
+        # Get schedule based on day type
+        schedule = self.daily_schedule['weekend' if is_weekend else 'weekday']
+        
+        # Find current time slot
+        for (start_hour, end_hour), activity_data in schedule.items():
+            if start_hour <= hour < end_hour:
+                return {
+                    **activity_data,
+                    'type': 'scheduled',
+                    'time_slot': f"{start_hour:02d}:00-{end_hour:02d}:00",
+                    'description': f"Currently {activity_data['activity'].replace('_', ' ')}"
+                }
+        
+        # Fallback
+        return {
+            'activity': 'free_time',
+            'availability': 0.5,
+            'mood': 'neutral',
+            'type': 'default',
+            'description': 'Just chilling'
+        }
+    
+    def should_respond(self, user_id: str, message_content: str, is_mention: bool = False) -> Dict:
+        """Determine if Priya should respond based on current activity"""
+        current = self.get_current_activity()
+        base_availability = current['availability']
+        
+        # Always respond to mentions (but with activity context)
+        if is_mention:
+            response_chance = min(0.9, base_availability + 0.3)
+        else:
+            response_chance = base_availability
+        
+        # Adjust based on activity
+        activity = current['activity']
+        
+        # Very low availability activities
+        if activity in ['sleeping', 'college_classes', 'exam_week']:
+            if not is_mention:
+                response_chance *= 0.2
+            delay_multiplier = 3.0
+            
+        # Medium availability activities  
+        elif activity in ['getting_ready', 'commute_home', 'dinner_family']:
+            response_chance *= 0.6
+            delay_multiplier = 2.0
+            
+        # High availability activities
+        elif activity in ['free_time', 'gaming_netflix', 'social_media', 'chai_time']:
+            response_chance *= 1.2
+            delay_multiplier = 0.8
+            
+        else:
+            delay_multiplier = 1.0
+        
+        # Random decision
+        will_respond = random.random() < response_chance
+        
+        return {
+            'should_respond': will_respond,
+            'response_chance': response_chance,
+            'delay_multiplier': delay_multiplier,
+            'activity_context': current,
+            'busy_reason': None if will_respond else f"I'm {activity.replace('_', ' ')} right now"
+        }
+    
+    def get_activity_context_message(self) -> str:
+        """Get context message about current activity for responses"""
+        current = self.get_current_activity()
+        activity = current['activity']
+        mood = current['mood']
+        
+        context_messages = {
+            'sleeping': "I'm supposed to be sleeping but couldn't resist checking messages 😴",
+            'college_classes': "I'm in class right now, so just a quick reply! 📚",
+            'getting_ready': "Getting ready for college, but had to reply! 🏃‍♀️",
+            'lunch_break': "Perfect timing! I'm on lunch break 🍽️",
+            'chai_time': "Chai time is the best time to chat! ☕",
+            'gaming_netflix': "Just gaming/watching Netflix, so I'm free to chat! 🎮",
+            'free_time': "I'm totally free right now! 😊",
+            'late_night_gaming': "Late night gaming session! Perfect time to chat 🌙",
+            'studying': "Taking a study break to reply! 📖",
+            'sick_day': "Not feeling great today, but wanted to reply 🤒"
+        }
+        
+        return context_messages.get(activity, "")
+    
+    def set_special_state(self, state: str, duration_hours: int = 24):
+        """Set special activity state (exam, sick, etc.)"""
+        if state in self.special_activities:
+            self.current_special_state = state
+            # Could add timer to auto-clear special state
+    
+    def clear_special_state(self):
+        """Clear special activity state"""
+        self.current_special_state = None
+    
+    def get_status_message(self) -> str:
+        """Get current status for display"""
+        current = self.get_current_activity()
+        return f"Currently: {current['description']} (Availability: {current['availability']*100:.0f}%)"
+
+class AutoStartManager:
+    """Manages bot auto-start and persistent operation"""
+    def __init__(self):
+        self.start_time = datetime.now()
+        self.is_running = False
+        self.uptime_stats = {
+            'total_messages': 0,
+            'responses_sent': 0,
+            'voice_interactions': 0,
+            'last_restart': None
+        }
+    
+    def start_bot(self):
+        """Mark bot as started"""
+        self.is_running = True
+        self.start_time = datetime.now()
+        print(f"🚀 Priya started at {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print("💫 Always online - will respond based on schedule and availability")
+    
+    def get_uptime(self) -> str:
+        """Get bot uptime"""
+        if not self.is_running:
+            return "Bot is not running"
+        
+        uptime = datetime.now() - self.start_time
+        days = uptime.days
+        hours, remainder = divmod(uptime.seconds, 3600)
+        minutes, _ = divmod(remainder, 60)
+        
+        return f"{days}d {hours}h {minutes}m"
+    
+    def log_interaction(self, interaction_type: str):
+        """Log bot interactions"""
+        self.uptime_stats['total_messages'] += 1
+        if interaction_type == 'response':
+            self.uptime_stats['responses_sent'] += 1
+        elif interaction_type == 'voice':
+            self.uptime_stats['voice_interactions'] += 1
+    
+    def get_stats(self) -> Dict:
+        """Get bot statistics"""
+        return {
+            'uptime': self.get_uptime(),
+            'start_time': self.start_time.isoformat(),
+            'is_running': self.is_running,
+            **self.uptime_stats
+        }
     """Complete emoji processing and generation system"""
     def __init__(self):
         self.emoji_categories = {
@@ -1568,6 +1776,8 @@ class PriyaUltimateIntegrated:
         self.speech_engine = HybridSpeechEngine()
         self.human_sim = HumanSimulationEngine()
         self.emoji_engine = EmojiEngine()
+        self.activity_engine = ActivityEngine()
+        self.autostart_manager = AutoStartManager()
         
         # Memory system
         self.memory_file = "priya_ultimate_memory.json"
@@ -1603,6 +1813,25 @@ class PriyaUltimateIntegrated:
                 interaction_type == 'text' and 
                 not self.presence_manager.is_available_for_channel(server_id, channel_id, 'text')):
                 return None  # Don't respond to text while in voice
+            
+            # Check activity-based availability
+            is_mention = metadata.get('is_mention', False)
+            activity_decision = self.activity_engine.should_respond(user_id, message, is_mention)
+            
+            # Log interaction
+            self.autostart_manager.log_interaction('message')
+            
+            # If shouldn't respond due to activity, return None or busy message
+            if not activity_decision['should_respond']:
+                if is_mention:  # Always acknowledge mentions but explain why busy
+                    busy_msg = activity_decision['busy_reason']
+                    context_msg = self.activity_engine.get_activity_context_message()
+                    return {
+                        'text': f"{busy_msg}. {context_msg}" if context_msg else busy_msg,
+                        'timing': {'total_delay': 1.0, 'show_typing': False},
+                        'emotion': 'apologetic'
+                    }
+                return None  # Don't respond at all
             
             # Update presence if joining voice
             if msg_type == 'voice' and server_id and channel_id:
@@ -1753,12 +1982,26 @@ class PriyaUltimateIntegrated:
             
             reply = await self.multi_model.generate_response_parallel(messages, temperature=0.95)
             
-            # Simulate human-like response timing
+            # Simulate human-like response timing with activity adjustment
             emotion = self.detect_emotion_from_response(reply)
             timing = await self.human_sim.simulate_human_response(reply, emotion, user_id)
             
+            # Apply activity-based delay multiplier
+            timing['total_delay'] *= activity_decision['delay_multiplier']
+            timing['typing_delay'] *= activity_decision['delay_multiplier']
+            
+            # Add activity context to response occasionally
+            activity_context = ""
+            if random.random() < 0.2:  # 20% chance to mention current activity
+                activity_context = self.activity_engine.get_activity_context_message()
+                if activity_context:
+                    reply = f"{reply} {activity_context}"
+            
             # Add natural emojis to response
             reply_with_emojis = self.emoji_engine.add_natural_emojis(reply, emotion)
+            
+            # Log successful response
+            self.autostart_manager.log_interaction('response')
             
             # Add response to history with timing info
             history.append({

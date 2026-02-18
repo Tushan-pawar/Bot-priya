@@ -184,7 +184,65 @@ async def reddit(ctx, subreddit):
         await ctx.send(f"Couldn't browse Reddit: {str(e)[:100]}")
 
 @bot.command()
-async def poll(ctx, question, *options):
+async def status(ctx):
+    """Check Priya's current status and activity"""
+    try:
+        activity = priya.activity_engine.get_current_activity()
+        stats = priya.autostart_manager.get_stats()
+        
+        status_msg = f"""🤖 **Priya's Status**
+
+📅 **Current Activity:** {activity['description']}
+📊 **Availability:** {activity['availability']*100:.0f}%
+😊 **Mood:** {activity['mood'].title()}
+⏰ **Uptime:** {stats['uptime']}
+💬 **Messages Processed:** {stats['total_messages']}
+📝 **Responses Sent:** {stats['responses_sent']}
+🎤 **Voice Interactions:** {stats['voice_interactions']}
+"""
+        await ctx.send(status_msg)
+    except Exception as e:
+        await ctx.send(f"Couldn't get status: {str(e)[:100]}")
+
+@bot.command()
+async def schedule(ctx):
+    """Show Priya's daily schedule"""
+    try:
+        now = datetime.now()
+        is_weekend = now.weekday() >= 5
+        day_type = "Weekend" if is_weekend else "Weekday"
+        
+        schedule_msg = f"📅 **My {day_type} Schedule:**\n\n"
+        
+        if is_weekend:
+            schedule_items = [
+                "8-10: Lazy morning 😴",
+                "10-12: Breakfast & chai ☕",
+                "12-14: Gaming time! 🎮",
+                "14-15: Lunch break 🍽️",
+                "15-17: Netflix & movies 🎥",
+                "17-19: Social media time 📱",
+                "19-21: Family dinner 🍽️",
+                "21-24: Late night gaming 🌙"
+            ]
+        else:
+            schedule_items = [
+                "8-10: Getting ready for college 🏃♀️",
+                "10-14: College classes 📚",
+                "14-15: Lunch break 🍽️",
+                "15-17: More classes 😴",
+                "17-18: Commute home 🚌",
+                "18-19: Chai time! ☕",
+                "19-21: Free time 😊",
+                "21-23: Gaming/Netflix 🎮"
+            ]
+        
+        schedule_msg += "\n".join(schedule_items)
+        schedule_msg += "\n\n💬 *I'm most available during free time and chai breaks!*"
+        
+        await ctx.send(schedule_msg)
+    except Exception as e:
+        await ctx.send(f"Couldn't show schedule: {str(e)[:100]}")
     """Create a poll"""
     try:
         if not options:
@@ -356,7 +414,8 @@ async def on_message(message):
             metadata = {
                 'server_id': str(message.guild.id),
                 'channel_id': str(message.channel.id),
-                'user_count': len([m for m in message.channel.members if not m.bot])
+                'user_count': len([m for m in message.channel.members if not m.bot]),
+                'is_mention': bot.user in message.mentions
             }
             response = await priya.process(user_id, message.content, "text", metadata)
         
@@ -558,14 +617,24 @@ def should_respond(message):
         # Don't respond to text if in voice chat (unless mentioned)
         if priya.presence_manager.is_in_voice() and bot.user not in message.mentions:
             return False
-            
+        
+        # Always respond to mentions
         if bot.user in message.mentions:
             return True
+        
+        # Use activity engine for natural response decisions
+        user_id = str(message.author.id)
+        activity_decision = priya.activity_engine.should_respond(user_id, message.content, False)
+        
+        if activity_decision['should_respond']:
+            return True
+        
+        # Fallback to old logic for compatibility
         if '?' in message.content:
             return random.random() < 0.7
         
         try:
-            ctx = priya.context_engine.get_user_context(str(message.author.id))
+            ctx = priya.context_engine.get_user_context(user_id)
             friendship = ctx.get('friendship_level', 0)
             
             if friendship > 70:
@@ -587,7 +656,7 @@ async def on_ready():
     print('🎉 PRIYA - ULTIMATE INTEGRATED SYSTEM')
     print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
     print('✅ ALL 120,000+ features integrated')
-    print('✅ Multi-model AI system (7 models)')
+    print('✅ Multi-model AI system (22 models)')
     print('✅ Real-time web browsing & news')
     print('✅ Reddit integration')
     print('✅ Image generation & art creation')
@@ -596,6 +665,10 @@ async def on_ready():
     print('✅ Dynamic self-learning tracker')
     print('✅ Enhanced media processing')
     print('✅ Discord-specific features')
+    print('✅ Human simulation & realistic timing')
+    print('✅ Complete emoji system')
+    print('✅ Activity-based availability')
+    print('✅ Auto-start & persistent operation')
     if voice_enabled:
         print('✅ Voice chat support')
     else:
@@ -603,6 +676,14 @@ async def on_ready():
     print('✅ ONE SOLID INTEGRATED FOUNDATION')
     print('✅ ZERO standalone files')
     print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+    
+    # Start the activity and auto-start managers
+    priya.autostart_manager.start_bot()
+    current_activity = priya.activity_engine.get_current_activity()
+    print(f"📅 Current Activity: {current_activity['description']}")
+    print(f"📊 Availability: {current_activity['availability']*100:.0f}%")
+    print(f"😊 Mood: {current_activity['mood']}")
+    
     print(f'🔗 Invite: https://discord.com/api/oauth2/authorize?client_id={bot.user.id}&permissions=3148800&scope=bot')
 
 @bot.event
