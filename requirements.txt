@@ -1,43 +1,40 @@
-# PRIYA INTEGRATED SYSTEM REQUIREMENTS
-# ONE SOLID FOUNDATION - ALL CAPABILITIES
+# Priya Discord Bot - Production Requirements
 
-# Discord Bot
+# Core Discord Bot
 discord.py==2.3.2
 
-# Multi-Model AI System (Hybrid: Local + Cloud)
-# Local models (if available): ollama
-# Cloud APIs: aiohttp, requests
+# AI/ML Models - Local & Cloud
 ollama==0.1.7  # Optional - for local models
 aiohttp==3.9.1
 requests==2.31.0
 
-# Voice Processing (Hybrid: Local + Cloud)
-# Local engines (if available): faster-whisper, TTS
-# Cloud APIs: Groq, ElevenLabs, etc.
+# Voice Processing - Local & Cloud  
 faster-whisper==0.10.0  # Optional - for local STT
 TTS==0.22.0  # Optional - for local TTS
 
-# Web Browsing & News
+# Web & Data Processing
 beautifulsoup4==4.12.2
 feedparser==6.0.10
 lxml==4.9.3
 
-# Image Generation & Processing
+# Image & Media Processing
 Pillow==10.0.0
 opencv-python==4.8.0.76
 numpy==1.24.3
 
-# Music Generation (Built-in modules)
-# wave, struct, math - Built-in
-
-# Code Execution (Built-in modules)
-# subprocess, tempfile - Built-in
-
-# Utilities
+# Configuration & Environment
 python-dotenv==1.0.0
+
+# Performance & Monitoring
+psutil==5.9.6  # Memory monitoring
 urllib3==2.0.7
 
-# Optional: Enhanced features
-youtube-dl==2021.12.17
-emoji==2.8.0  # Full emoji support
+# Optional Enhanced Features
+emoji==2.8.0  # Enhanced emoji support
 regex==2023.10.3  # Advanced text processing
+
+# Development & Testing (optional)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+black==23.9.1
+mypy==1.6.1
