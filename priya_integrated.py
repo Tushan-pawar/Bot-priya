@@ -28,8 +28,299 @@ import feedparser
 from bs4 import BeautifulSoup
 import cv2
 import ollama
+import time
+try:
+    import emoji
+    EMOJI_SUPPORT = True
+except ImportError:
+    EMOJI_SUPPORT = False
 
-class PresenceManager:
+class EmojiEngine:
+    """Complete emoji processing and generation system"""
+    def __init__(self):
+        self.emoji_categories = {
+            'happy': ['😊', '😄', '😃', '😁', '🙂', '😌', '😍', '🥰', '😘', '🤗', '🎉', '✨', '🌟', '💖', '💕'],
+            'sad': ['😢', '😭', '😞', '😔', '☹️', '🙁', '😿', '💔', '😰', '😨', '😱', '😓', '😪', '😴', '💧'],
+            'excited': ['🤩', '🔥', '⚡', '🎊', '🎈', '🚀', '💥', '🌈', '🦄', '✨', '🎯', '🏆', '🥳', '🎪', '🎭'],
+            'love': ['❤️', '💕', '💖', '💗', '💘', '💝', '💞', '💟', '♥️', '💌', '💐', '🌹', '😍', '🥰', '😘'],
+            'angry': ['😠', '😡', '🤬', '👿', '💢', '🔥', '⚡', '💥', '🌋', '👺', '😤', '😾', '🙄', '😒', '🗯️'],
+            'funny': ['😂', '🤣', '😆', '😹', '🤪', '🤭', '😜', '😝', '🙃', '🤡', '🎭', '🎪', '🤷', '🤦', '😅'],
+            'thinking': ['🤔', '💭', '🧠', '💡', '🔍', '📝', '📚', '🎓', '🤓', '👨‍💻', '⚙️', '🔧', '🛠️', '📊', '📈'],
+            'cool': ['😎', '🕶️', '🆒', '👌', '👍', '🤘', '✌️', '🤙', '👊', '🔥', '💯', '⭐', '🌟', '✨', '🎯'],
+            'food': ['🍕', '🍔', '🍟', '🌮', '🍜', '🍝', '🍣', '🍱', '🥘', '🍛', '🍲', '🥗', '🍰', '🧁', '☕'],
+            'indian': ['🇮🇳', '🕉️', '🪔', '🎭', '🐘', '🦚', '🌶️', '🫖', '🥘', '🍛', '🧿', '💃', '🎵', '🎶', '🏛️'],
+            'gaming': ['🎮', '🕹️', '🎯', '🏆', '🥇', '🎲', '🃏', '♠️', '♥️', '♦️', '♣️', '🎪', '🎭', '🎨', '🖥️'],
+            'music': ['🎵', '🎶', '🎤', '🎧', '🎸', '🥁', '🎹', '🎺', '🎻', '🪕', '🎼', '🎙️', '📻', '🔊', '🎚️'],
+            'nature': ['🌸', '🌺', '🌻', '🌷', '🌹', '🌿', '🍃', '🌱', '🌳', '🌲', '🦋', '🐝', '🌈', '☀️', '🌙'],
+            'tech': ['💻', '📱', '⌚', '🖥️', '⌨️', '🖱️', '💾', '💿', '📀', '🔌', '🔋', '📡', '🛰️', '🤖', '⚡'],
+            'travel': ['✈️', '🚗', '🚕', '🚌', '🚊', '🚇', '🚢', '⛵', '🏖️', '🏝️', '🗺️', '🧳', '📷', '🎒', '🌍']
+        }
+        
+        self.contextual_emojis = {
+            'greeting': ['👋', '🙋‍♀️', '🤗', '😊', '🌅', '☀️'],
+            'goodbye': ['👋', '😘', '💕', '🌙', '✨', '🚪'],
+            'question': ['❓', '❔', '🤔', '💭', '🔍', '📝'],
+            'celebration': ['🎉', '🎊', '🥳', '🍾', '🎈', '🏆'],
+            'support': ['🤗', '💪', '👍', '❤️', '🙏', '✨'],
+            'weather': ['☀️', '🌤️', '⛅', '🌦️', '🌧️', '❄️'],
+            'time_morning': ['🌅', '☀️', '🌞', '🐓', '☕', '🥐'],
+            'time_evening': ['🌅', '🌇', '🌆', '🌃', '🌙', '⭐'],
+            'time_night': ['🌙', '⭐', '🌟', '😴', '💤', '🦉']
+        }
+        
+        self.emoji_reactions = {
+            'agreement': ['👍', '✅', '💯', '👌', '🎯', '✨'],
+            'disagreement': ['👎', '❌', '🚫', '🙅‍♀️', '😬', '🤷‍♀️'],
+            'surprise': ['😱', '🤯', '😲', '🙀', '💥', '⚡'],
+            'confusion': ['🤔', '😕', '🤷‍♀️', '❓', '🧐', '😵‍💫']
+        }
+    
+    def get_contextual_emoji(self, text: str, emotion: str = 'neutral', context: str = '') -> str:
+        """Get appropriate emoji based on text content, emotion, and context"""
+        text_lower = text.lower()
+        selected_emojis = []
+        
+        # Context-based emoji selection
+        if any(word in text_lower for word in ['hello', 'hi', 'hey', 'good morning']):
+            selected_emojis.extend(self.contextual_emojis['greeting'])
+        elif any(word in text_lower for word in ['bye', 'goodbye', 'see you', 'good night']):
+            selected_emojis.extend(self.contextual_emojis['goodbye'])
+        elif '?' in text:
+            selected_emojis.extend(self.contextual_emojis['question'])
+        elif any(word in text_lower for word in ['congrats', 'celebrate', 'party', 'yay']):
+            selected_emojis.extend(self.contextual_emojis['celebration'])
+        
+        # Emotion-based emoji selection
+        if emotion in self.emoji_categories:
+            selected_emojis.extend(self.emoji_categories[emotion])
+        
+        # Content-based emoji selection
+        if any(word in text_lower for word in ['food', 'eat', 'hungry', 'pizza', 'chai']):
+            selected_emojis.extend(self.emoji_categories['food'])
+        elif any(word in text_lower for word in ['game', 'gaming', 'play', 'valorant']):
+            selected_emojis.extend(self.emoji_categories['gaming'])
+        elif any(word in text_lower for word in ['music', 'song', 'sing', 'dance']):
+            selected_emojis.extend(self.emoji_categories['music'])
+        elif any(word in text_lower for word in ['india', 'indian', 'hindi', 'bollywood']):
+            selected_emojis.extend(self.emoji_categories['indian'])
+        elif any(word in text_lower for word in ['code', 'programming', 'tech', 'computer']):
+            selected_emojis.extend(self.emoji_categories['tech'])
+        
+        # Time-based emoji selection
+        hour = datetime.now().hour
+        if 5 <= hour < 12:
+            selected_emojis.extend(self.contextual_emojis['time_morning'])
+        elif 17 <= hour < 21:
+            selected_emojis.extend(self.contextual_emojis['time_evening'])
+        elif 21 <= hour or hour < 5:
+            selected_emojis.extend(self.contextual_emojis['time_night'])
+        
+        # Return random emoji from selected ones, or default
+        if selected_emojis:
+            return random.choice(selected_emojis)
+        else:
+            return random.choice(self.emoji_categories['happy'])
+    
+    def add_natural_emojis(self, text: str, emotion: str = 'neutral') -> str:
+        """Add natural emoji placement in text"""
+        if not text:
+            return text
+        
+        # Don't add emojis if text already has many
+        existing_emoji_count = len([c for c in text if self.is_emoji(c)])
+        if existing_emoji_count >= 3:
+            return text
+        
+        # Get appropriate emoji
+        emoji_char = self.get_contextual_emoji(text, emotion)
+        
+        # Natural placement strategies
+        sentences = text.split('. ')
+        if len(sentences) > 1:
+            # Add emoji to end of first sentence occasionally
+            if random.random() < 0.4:
+                sentences[0] += f' {emoji_char}'
+            text = '. '.join(sentences)
+        else:
+            # Add emoji at end for single sentences
+            if random.random() < 0.6:
+                text += f' {emoji_char}'
+        
+        return text
+    
+    def is_emoji(self, char: str) -> bool:
+        """Check if character is an emoji"""
+        if EMOJI_SUPPORT:
+            return char in emoji.EMOJI_DATA
+        else:
+            # Fallback: basic emoji detection
+            emoji_ranges = [
+                (0x1F600, 0x1F64F),  # Emoticons
+                (0x1F300, 0x1F5FF),  # Misc Symbols
+                (0x1F680, 0x1F6FF),  # Transport
+                (0x1F1E0, 0x1F1FF),  # Flags
+                (0x2600, 0x26FF),    # Misc symbols
+                (0x2700, 0x27BF),    # Dingbats
+            ]
+            return any(start <= ord(char) <= end for start, end in emoji_ranges)
+    
+    def extract_emojis(self, text: str) -> List[str]:
+        """Extract all emojis from text"""
+        return [char for char in text if self.is_emoji(char)]
+    
+    def emoji_to_text(self, emoji_char: str) -> str:
+        """Convert emoji to text description"""
+        if EMOJI_SUPPORT:
+            return emoji.demojize(emoji_char)
+        else:
+            # Fallback descriptions
+            emoji_descriptions = {
+                '😊': ':smiling_face:', '😄': ':grinning_face:', '😢': ':crying_face:',
+                '❤️': ':red_heart:', '👍': ':thumbs_up:', '👎': ':thumbs_down:',
+                '🔥': ':fire:', '✨': ':sparkles:', '🎉': ':party_popper:'
+            }
+            return emoji_descriptions.get(emoji_char, emoji_char)
+    
+    def text_to_emoji(self, text: str) -> str:
+        """Convert text descriptions to emojis"""
+        if EMOJI_SUPPORT:
+            return emoji.emojize(text)
+        else:
+            # Fallback conversions
+            text_to_emoji_map = {
+                ':smiling_face:': '😊', ':grinning_face:': '😄', ':crying_face:': '😢',
+                ':red_heart:': '❤️', ':thumbs_up:': '👍', ':thumbs_down:': '👎',
+                ':fire:': '🔥', ':sparkles:': '✨', ':party_popper:': '🎉'
+            }
+            for text_emoji, emoji_char in text_to_emoji_map.items():
+                text = text.replace(text_emoji, emoji_char)
+            return text
+    
+    def get_reaction_emoji(self, message_type: str) -> str:
+        """Get appropriate reaction emoji for message type"""
+        if message_type in self.emoji_reactions:
+            return random.choice(self.emoji_reactions[message_type])
+        return '😊'
+    """Simulates human-like behavior with realistic delays and typing patterns"""
+    def __init__(self):
+        self.typing_speeds = {
+            'fast': (40, 80),      # 40-80 WPM (excited, short messages)
+            'normal': (25, 45),    # 25-45 WPM (casual conversation)
+            'slow': (15, 30),      # 15-30 WPM (thinking, long messages)
+            'distracted': (10, 25) # 10-25 WPM (multitasking, tired)
+        }
+        self.last_message_time = {}
+        self.conversation_state = {}
+    
+    def calculate_typing_delay(self, text: str, emotion: str = 'neutral', user_id: str = None) -> float:
+        """Calculate realistic typing delay based on text length and emotional state"""
+        word_count = len(text.split())
+        char_count = len(text)
+        
+        # Base typing speed based on emotion
+        speed_category = self.get_typing_speed_category(emotion)
+        min_wpm, max_wpm = self.typing_speeds[speed_category]
+        
+        # Random variation in typing speed
+        wpm = random.uniform(min_wpm, max_wpm)
+        
+        # Calculate base delay (words per minute to seconds)
+        base_delay = (word_count / wpm) * 60
+        
+        # Add thinking pauses for complex messages
+        thinking_delay = 0
+        if word_count > 20:
+            thinking_delay += random.uniform(1, 3)  # Pause to think
+        if '?' in text:
+            thinking_delay += random.uniform(0.5, 1.5)  # Consider question
+        if any(word in text.lower() for word in ['hmm', 'let me think', 'actually']):
+            thinking_delay += random.uniform(1, 2)  # Deliberation
+        
+        # Add micro-pauses for punctuation
+        punctuation_delay = text.count(',') * 0.2 + text.count('.') * 0.3 + text.count('!') * 0.1
+        
+        # Conversation flow adjustments
+        flow_delay = self.calculate_conversation_flow_delay(user_id)
+        
+        total_delay = base_delay + thinking_delay + punctuation_delay + flow_delay
+        
+        # Realistic bounds (0.5 to 15 seconds)
+        return max(0.5, min(15.0, total_delay))
+    
+    def get_typing_speed_category(self, emotion: str) -> str:
+        """Determine typing speed based on emotional state"""
+        fast_emotions = ['excited', 'happy', 'angry', 'surprised', 'energetic']
+        slow_emotions = ['sad', 'tired', 'thoughtful', 'worried', 'confused']
+        distracted_emotions = ['sleepy', 'overwhelmed', 'distracted', 'sick']
+        
+        if emotion in fast_emotions:
+            return 'fast'
+        elif emotion in slow_emotions:
+            return 'slow'
+        elif emotion in distracted_emotions:
+            return 'distracted'
+        else:
+            return 'normal'
+    
+    def calculate_conversation_flow_delay(self, user_id: str) -> float:
+        """Add delay based on conversation flow and timing"""
+        if not user_id:
+            return 0
+        
+        now = time.time()
+        last_time = self.last_message_time.get(user_id, 0)
+        time_since_last = now - last_time
+        
+        # If user just messaged, respond quicker (engaged conversation)
+        if time_since_last < 30:  # Within 30 seconds
+            flow_delay = random.uniform(0, 0.5)
+        elif time_since_last < 300:  # Within 5 minutes
+            flow_delay = random.uniform(0.5, 1.5)
+        else:  # Long gap, might be doing something else
+            flow_delay = random.uniform(1, 3)
+        
+        self.last_message_time[user_id] = now
+        return flow_delay
+    
+    def should_show_typing(self, delay: float) -> bool:
+        """Determine if typing indicator should be shown"""
+        return delay > 2.0  # Show typing for delays longer than 2 seconds
+    
+    def get_realistic_pauses(self, text: str) -> List[tuple]:
+        """Get realistic pause points during typing"""
+        pauses = []
+        words = text.split()
+        
+        for i, word in enumerate(words):
+            # Pause at punctuation
+            if word.endswith((',', '.', '!', '?')):
+                pause_duration = random.uniform(0.2, 0.8)
+                pauses.append((i, pause_duration))
+            
+            # Occasional thinking pauses
+            if random.random() < 0.1 and i > 3:  # 10% chance after 3rd word
+                pause_duration = random.uniform(0.5, 1.5)
+                pauses.append((i, pause_duration))
+        
+        return pauses
+    
+    async def simulate_human_response(self, text: str, emotion: str = 'neutral', user_id: str = None) -> Dict:
+        """Simulate complete human-like response timing"""
+        # Calculate delays
+        typing_delay = self.calculate_typing_delay(text, emotion, user_id)
+        show_typing = self.should_show_typing(typing_delay)
+        
+        # Add small random delay before starting to type (reaction time)
+        reaction_delay = random.uniform(0.1, 0.8)
+        
+        return {
+            'reaction_delay': reaction_delay,
+            'typing_delay': typing_delay,
+            'total_delay': reaction_delay + typing_delay,
+            'show_typing': show_typing,
+            'emotion': emotion,
+            'pauses': self.get_realistic_pauses(text)
+        }
     """Manages Priya's presence - only one channel at a time"""
     def __init__(self):
         self.current_presence = {
@@ -570,6 +861,58 @@ class MultiModelEngine:
                 'type': 'api', 'url': 'https://api.cohere.ai/v1/chat',
                 'model': 'command-light', 'headers': {'Authorization': f'Bearer {os.getenv("COHERE_API_KEY")}'},
                 'priority': 12, 'daily_limit': 1000, 'used_today': 0
+            },
+            
+            # ADDITIONAL FREE MODELS (Priority 13-22) - 1000+ more requests/day
+            'replicate_llama': {
+                'type': 'api', 'url': 'https://api.replicate.com/v1/predictions',
+                'model': 'meta/llama-2-7b-chat', 'headers': {'Authorization': f'Token {os.getenv("REPLICATE_API_TOKEN")}'},
+                'priority': 13, 'daily_limit': 100, 'used_today': 0
+            },
+            'perplexity_free': {
+                'type': 'api', 'url': 'https://api.perplexity.ai/chat/completions',
+                'model': 'llama-3.1-sonar-small-128k-online', 'headers': {'Authorization': f'Bearer {os.getenv("PERPLEXITY_API_KEY")}'},
+                'priority': 14, 'daily_limit': 100, 'used_today': 0
+            },
+            'anthropic_claude': {
+                'type': 'api', 'url': 'https://api.anthropic.com/v1/messages',
+                'model': 'claude-3-haiku-20240307', 'headers': {'x-api-key': os.getenv("ANTHROPIC_API_KEY"), 'anthropic-version': '2023-06-01'},
+                'priority': 15, 'daily_limit': 100, 'used_today': 0
+            },
+            'mistral_free': {
+                'type': 'api', 'url': 'https://api.mistral.ai/v1/chat/completions',
+                'model': 'mistral-tiny', 'headers': {'Authorization': f'Bearer {os.getenv("MISTRAL_API_KEY")}'},
+                'priority': 16, 'daily_limit': 100, 'used_today': 0
+            },
+            'ai21_free': {
+                'type': 'api', 'url': 'https://api.ai21.com/studio/v1/j2-light/complete',
+                'model': 'j2-light', 'headers': {'Authorization': f'Bearer {os.getenv("AI21_API_KEY")}'},
+                'priority': 17, 'daily_limit': 100, 'used_today': 0
+            },
+            'fireworks_free': {
+                'type': 'api', 'url': 'https://api.fireworks.ai/inference/v1/chat/completions',
+                'model': 'accounts/fireworks/models/llama-v2-7b-chat', 'headers': {'Authorization': f'Bearer {os.getenv("FIREWORKS_API_KEY")}'},
+                'priority': 18, 'daily_limit': 100, 'used_today': 0
+            },
+            'anyscale_free': {
+                'type': 'api', 'url': 'https://api.endpoints.anyscale.com/v1/chat/completions',
+                'model': 'meta-llama/Llama-2-7b-chat-hf', 'headers': {'Authorization': f'Bearer {os.getenv("ANYSCALE_API_KEY")}'},
+                'priority': 19, 'daily_limit': 100, 'used_today': 0
+            },
+            'modal_free': {
+                'type': 'api', 'url': 'https://api.modal.com/v1/chat/completions',
+                'model': 'llama-2-7b', 'headers': {'Authorization': f'Bearer {os.getenv("MODAL_TOKEN")}'},
+                'priority': 20, 'daily_limit': 100, 'used_today': 0
+            },
+            'banana_free': {
+                'type': 'api', 'url': 'https://api.banana.dev/v4/models/llama2/predict',
+                'model': 'llama2-7b', 'headers': {'Authorization': f'Bearer {os.getenv("BANANA_API_KEY")}'},
+                'priority': 21, 'daily_limit': 100, 'used_today': 0
+            },
+            'runpod_free': {
+                'type': 'api', 'url': 'https://api.runpod.ai/v2/llama2-7b/runsync',
+                'model': 'llama2-7b-chat', 'headers': {'Authorization': f'Bearer {os.getenv("RUNPOD_API_KEY")}'},
+                'priority': 22, 'daily_limit': 100, 'used_today': 0
             }
         }
         
@@ -644,28 +987,82 @@ class MultiModelEngine:
             
         try:
             async with aiohttp.ClientSession() as session:
+                # Handle different API formats
                 if 'huggingface' in model_name:
                     payload = {'inputs': messages[-1]['content'], 'parameters': {'temperature': temperature, 'max_length': 200}}
+                elif 'anthropic' in model_name:
+                    payload = {
+                        'model': config['model'],
+                        'max_tokens': 200,
+                        'messages': [{'role': msg['role'], 'content': msg['content']} for msg in messages if msg['role'] != 'system']
+                    }
+                elif 'ai21' in model_name:
+                    payload = {
+                        'prompt': messages[-1]['content'],
+                        'maxTokens': 200,
+                        'temperature': temperature
+                    }
+                elif 'replicate' in model_name:
+                    payload = {
+                        'version': 'latest',
+                        'input': {
+                            'prompt': messages[-1]['content'],
+                            'max_length': 200,
+                            'temperature': temperature
+                        }
+                    }
+                elif 'perplexity' in model_name:
+                    payload = {
+                        'model': config['model'],
+                        'messages': messages,
+                        'temperature': temperature,
+                        'max_tokens': 200
+                    }
+                elif 'cohere' in model_name:
+                    payload = {
+                        'message': messages[-1]['content'],
+                        'model': config['model'],
+                        'temperature': temperature,
+                        'max_tokens': 200
+                    }
                 else:
-                    payload = {'model': config['model'], 'messages': messages, 'temperature': temperature, 'max_tokens': 200}
+                    # Standard OpenAI format for most APIs
+                    payload = {
+                        'model': config['model'], 
+                        'messages': messages, 
+                        'temperature': temperature, 
+                        'max_tokens': 200
+                    }
                 
                 async with session.post(config['url'], headers=config['headers'], json=payload, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status == 200:
                         data = await response.json()
                         self.models[model_name]['used_today'] += 1
                         
+                        # Handle different response formats
                         if 'huggingface' in model_name:
                             return data[0]['generated_text']
+                        elif 'anthropic' in model_name:
+                            return data['content'][0]['text']
+                        elif 'ai21' in model_name:
+                            return data['completions'][0]['data']['text']
+                        elif 'replicate' in model_name:
+                            return data.get('output', [''])[0] if data.get('output') else ''
+                        elif 'cohere' in model_name:
+                            return data['text']
                         else:
+                            # Standard OpenAI format
                             return data['choices'][0]['message']['content']
-        except:
+        except Exception as e:
+            print(f"API request failed for {model_name}: {e}")
             return None
     
     async def emergency_fallback(self) -> str:
         fallbacks = [
-            "Arre yaar, all my AI models are acting up right now... 😅",
-            "Sorry, having some technical issues. Give me a moment!",
-            "Hmm, something's not working properly. Try again in a sec?"
+            "Arre yaar, all my AI models are acting up right now... 😅 Try again in a moment!",
+            "Sorry, having some technical issues with all backup models. Give me a sec!",
+            "Hmm, all 22 models are busy right now. That's unusual! Try again?",
+            "Looks like I've hit all my daily limits across providers. Local models still work though!"
         ]
         return random.choice(fallbacks)
     
@@ -1169,6 +1566,8 @@ class PriyaUltimateIntegrated:
         self.music_generator = MusicGenerationEngine()
         self.code_executor = CodeExecutionEngine()
         self.speech_engine = HybridSpeechEngine()
+        self.human_sim = HumanSimulationEngine()
+        self.emoji_engine = EmojiEngine()
         
         # Memory system
         self.memory_file = "priya_ultimate_memory.json"
@@ -1230,7 +1629,7 @@ class PriyaUltimateIntegrated:
             }
             active_features = self.feature_engine.activate_features(context_data)
             
-            # Handle special capabilities
+            # Handle special capabilities and media processing
             enhanced_message = message
             
             if msg_type == "text":
@@ -1284,8 +1683,50 @@ class PriyaUltimateIntegrated:
                             reddit_summary = "\\n".join([f"🔥 {post['title']} ({post['score']} upvotes)" for post in posts[:3]])
                             enhanced_message = f"{message}\\n\\nFrom r/{subreddit}:\\n{reddit_summary}"
             
-            # Build comprehensive prompt
+            # Enhanced media processing for Discord embeds
+            elif msg_type in ['image', 'video', 'gif', 'youtube', 'spotify', 'link', 'embed']:
+                embed_data = metadata.get('embed_data', {})
+                
+                if msg_type == 'youtube':
+                    enhanced_message = f"Saw YouTube video: {embed_data.get('title', 'Video')}. {message}"
+                elif msg_type == 'spotify':
+                    enhanced_message = f"Nice music choice! {embed_data.get('title', 'Song')}. {message}"
+                elif msg_type == 'gif':
+                    enhanced_message = f"Haha, that GIF! {message}" if message else "That GIF is funny! 😄"
+                elif msg_type == 'image':
+                    enhanced_message = f"Cool image! {embed_data.get('title', '')} {message}"
+                elif msg_type == 'tiktok':
+                    enhanced_message = f"TikTok video: {embed_data.get('title', 'Video')}. {message}"
+                elif msg_type == 'instagram':
+                    enhanced_message = f"Instagram post! {embed_data.get('title', '')} {message}"
+                elif msg_type == 'reddit_link':
+                    enhanced_message = f"Reddit post: {embed_data.get('title', 'Post')}. {message}"
+                elif msg_type == 'github':
+                    enhanced_message = f"GitHub repo/code: {embed_data.get('title', 'Code')}. {message}"
+                elif msg_type == 'article':
+                    enhanced_message = f"Interesting article: {embed_data.get('title', 'Article')}. {message}"
+                elif msg_type == 'link':
+                    enhanced_message = f"Shared link: {embed_data.get('title', embed_data.get('url', 'Link'))}. {message}"
+                else:
+                    enhanced_message = f"Shared content: {embed_data.get('title', 'Media')}. {message}"
+            
+            # Build comprehensive prompt with media awareness
             system_prompt = self.prompt_builder.build_system_prompt(ctx, self.priya_state, active_features)
+            
+            # Add media context if present
+            if msg_type != 'text' and metadata:
+                media_context = f"\\n\\nMEDIA CONTEXT:\\n- Type: {msg_type.upper()}\\n"
+                if 'embed_data' in metadata:
+                    embed = metadata['embed_data']
+                    if embed.get('title'):
+                        media_context += f"- Title: {embed['title']}\\n"
+                    if embed.get('description'):
+                        media_context += f"- Description: {embed['description'][:200]}...\\n"
+                    if embed.get('url'):
+                        media_context += f"- URL: {embed['url']}\\n"
+                    if embed.get('author'):
+                        media_context += f"- Author: {embed['author']}\\n"
+                system_prompt += media_context
             
             # Add tracker context
             tracker_context = self.dynamic_tracker.get_tracker_context(user_id)
@@ -1312,11 +1753,20 @@ class PriyaUltimateIntegrated:
             
             reply = await self.multi_model.generate_response_parallel(messages, temperature=0.95)
             
-            # Add response to history
+            # Simulate human-like response timing
+            emotion = self.detect_emotion_from_response(reply)
+            timing = await self.human_sim.simulate_human_response(reply, emotion, user_id)
+            
+            # Add natural emojis to response
+            reply_with_emojis = self.emoji_engine.add_natural_emojis(reply, emotion)
+            
+            # Add response to history with timing info
             history.append({
                 'role': 'assistant',
-                'content': reply,
-                'timestamp': datetime.now().isoformat()
+                'content': reply_with_emojis,
+                'timestamp': datetime.now().isoformat(),
+                'emotion': emotion,
+                'timing': timing
             })
             
             # Update context and tracker
@@ -1326,12 +1776,37 @@ class PriyaUltimateIntegrated:
             # Save memory
             self.save_memory()
             
-            return reply
+            # Return reply with timing info for Discord bot to use
+            return {
+                'text': reply_with_emojis,
+                'timing': timing,
+                'emotion': emotion
+            }
             
         except Exception as e:
             print(f"Processing error: {e}")
             print(traceback.format_exc())
             return f"Arre yaar, something went wrong... {str(e)[:50]} 😅"
+    
+    def detect_emotion_from_response(self, text: str) -> str:
+        """Detect emotion from Priya's response for timing simulation"""
+        text_lower = text.lower()
+        
+        # Quick emotion detection for response timing
+        if any(word in text_lower for word in ['excited', 'amazing', 'wow', 'yay', '!']):
+            return 'excited'
+        elif any(word in text_lower for word in ['sorry', 'sad', 'disappointed']):
+            return 'sad'
+        elif any(word in text_lower for word in ['hmm', 'think', 'actually', 'well']):
+            return 'thoughtful'
+        elif any(word in text_lower for word in ['haha', 'lol', 'funny', '😄']):
+            return 'playful'
+        elif any(word in text_lower for word in ['tired', 'sleepy', 'yawn']):
+            return 'tired'
+        elif '?' in text:
+            return 'curious'
+        else:
+            return 'neutral'
 
 # Global instance - ONE SOLID FOUNDATION
 priya = PriyaUltimateIntegrated()

@@ -76,7 +76,12 @@ async def join(ctx):
             'server_id': server_id,
             'channel_id': channel_id
         })
-        await ctx.send(response)
+        
+        # Handle response with timing
+        if isinstance(response, dict) and 'text' in response:
+            await ctx.send(response['text'])
+        else:
+            await ctx.send(response)
         
         voice_client.start_recording(AudioSink(ctx.author.id), lambda s, u: asyncio.create_task(process_voice(s, u, ctx)))
     except Exception as e:
@@ -87,7 +92,12 @@ async def leave(ctx):
     if ctx.guild.id in voice_connections:
         try:
             response = await priya.process(str(ctx.author.id), "leaving voice", "voice")
-            await ctx.send(response)
+            
+            # Handle response with timing
+            if isinstance(response, dict) and 'text' in response:
+                await ctx.send(response['text'])
+            else:
+                await ctx.send(response)
             
             voice_connections[ctx.guild.id].stop_recording()
             await voice_connections[ctx.guild.id].disconnect()
@@ -107,7 +117,12 @@ async def art(ctx, *, prompt):
     """Create artwork"""
     try:
         response = await priya.process(str(ctx.author.id), f"draw {prompt}", "text")
-        await ctx.send(response)
+        
+        # Handle response with timing
+        if isinstance(response, dict) and 'text' in response:
+            await ctx.send(response['text'])
+        else:
+            await ctx.send(response)
     except Exception as e:
         await ctx.send(f"Couldn't create art: {str(e)[:100]}")
 
@@ -116,7 +131,12 @@ async def music(ctx, mood="happy"):
     """Generate music"""
     try:
         response = await priya.process(str(ctx.author.id), f"create music {mood}", "text")
-        await ctx.send(response)
+        
+        # Handle response with timing
+        if isinstance(response, dict) and 'text' in response:
+            await ctx.send(response['text'])
+        else:
+            await ctx.send(response)
     except Exception as e:
         await ctx.send(f"Couldn't make music: {str(e)[:100]}")
 
@@ -126,7 +146,12 @@ async def code(ctx, *, code):
     try:
         formatted_code = f"run code ```python\\n{code}\\n```"
         response = await priya.process(str(ctx.author.id), formatted_code, "text")
-        await ctx.send(response)
+        
+        # Handle response with timing
+        if isinstance(response, dict) and 'text' in response:
+            await ctx.send(response['text'])
+        else:
+            await ctx.send(response)
     except Exception as e:
         await ctx.send(f"Couldn't run code: {str(e)[:100]}")
 
@@ -135,7 +160,12 @@ async def news(ctx, category="general"):
     """Get latest news"""
     try:
         response = await priya.process(str(ctx.author.id), f"latest {category} news", "text")
-        await ctx.send(response)
+        
+        # Handle response with timing
+        if isinstance(response, dict) and 'text' in response:
+            await ctx.send(response['text'])
+        else:
+            await ctx.send(response)
     except Exception as e:
         await ctx.send(f"Couldn't get news: {str(e)[:100]}")
 
@@ -144,7 +174,12 @@ async def reddit(ctx, subreddit):
     """Browse Reddit"""
     try:
         response = await priya.process(str(ctx.author.id), f"check r/{subreddit}", "text")
-        await ctx.send(response)
+        
+        # Handle response with timing
+        if isinstance(response, dict) and 'text' in response:
+            await ctx.send(response['text'])
+        else:
+            await ctx.send(response)
     except Exception as e:
         await ctx.send(f"Couldn't browse Reddit: {str(e)[:100]}")
 
@@ -156,7 +191,12 @@ async def poll(ctx, question, *options):
             options = ["Yes", "No"]
         
         response = await priya.process(str(ctx.author.id), f"create poll: {question}", "text")
-        poll_msg = await ctx.send(response)
+        
+        # Handle response with timing
+        if isinstance(response, dict) and 'text' in response:
+            poll_msg = await ctx.send(response['text'])
+        else:
+            poll_msg = await ctx.send(response)
         
         emoji_numbers = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
         for i in range(min(len(options), 10)):
@@ -189,14 +229,17 @@ async def process_voice(sink, user, ctx):
                 'detected_language': detected_language
             })
             
+            # Handle response format
+            response_text = response['text'] if isinstance(response, dict) and 'text' in response else str(response)
+            
             # Detect emotion from response for voice synthesis
-            emotion = detect_emotion_from_text(response)
+            emotion = detect_emotion_from_text(response_text)
             
             output_path = f"response_{user.id}.wav"
             
             # Use consistent voice settings with detected emotion and language
             voice_settings = priya.presence_manager.get_voice_settings(emotion, detected_language)
-            success = await priya.speech_engine.synthesize_speech(response, output_path, voice_settings)
+            success = await priya.speech_engine.synthesize_speech(response_text, output_path, voice_settings)
             
             if success:
                 voice_client = voice_connections.get(ctx.guild.id)
@@ -230,24 +273,81 @@ async def on_message(message):
         user_id = str(message.author.id)
         response = None
         
-        # Handle all media types
+        # Handle all media types and embeds
         if message.attachments:
             for att in message.attachments:
                 if att.content_type and att.content_type.startswith('image/'):
-                    metadata = {'image_url': att.url}
-                    response = await priya.process(user_id, f"[IMAGE] {message.content}", "image", metadata)
+                    metadata = {'image_url': att.url, 'filename': att.filename}
+                    response = await priya.process(user_id, f"[IMAGE: {att.filename}] {message.content}", "image", metadata)
                 elif att.content_type and att.content_type.startswith('video/'):
-                    metadata = {'video_url': att.url}
-                    response = await priya.process(user_id, f"[VIDEO] {message.content}", "video", metadata)
+                    metadata = {'video_url': att.url, 'filename': att.filename}
+                    response = await priya.process(user_id, f"[VIDEO: {att.filename}] {message.content}", "video", metadata)
+                elif att.content_type and att.content_type.startswith('audio/'):
+                    metadata = {'audio_url': att.url, 'filename': att.filename}
+                    response = await priya.process(user_id, f"[AUDIO: {att.filename}] {message.content}", "audio", metadata)
         
+        # Handle Discord embeds (links, videos, images, etc.)
         if message.embeds:
             for embed in message.embeds:
-                if embed.type == 'video' and 'youtube' in str(embed.url).lower():
-                    metadata = {'youtube_url': embed.url}
-                    response = await priya.process(user_id, f"[YOUTUBE] {embed.title}", "youtube", metadata)
-                elif embed.type == 'gifv' or 'gif' in str(embed.url).lower():
-                    metadata = {'gif_url': embed.url}
-                    response = await priya.process(user_id, "[GIF]", "gif", metadata)
+                embed_data = {
+                    'title': embed.title,
+                    'description': embed.description,
+                    'url': str(embed.url) if embed.url else None,
+                    'type': embed.type,
+                    'color': embed.color,
+                    'thumbnail': embed.thumbnail.url if embed.thumbnail else None,
+                    'image': embed.image.url if embed.image else None,
+                    'video': embed.video.url if embed.video else None,
+                    'author': embed.author.name if embed.author else None,
+                    'footer': embed.footer.text if embed.footer else None,
+                    'fields': [(f.name, f.value) for f in embed.fields] if embed.fields else []
+                }
+                
+                # Handle different embed types
+                if embed.type == 'video':
+                    if 'youtube' in str(embed.url).lower() or 'youtu.be' in str(embed.url).lower():
+                        response = await priya.process(user_id, f"[YOUTUBE: {embed.title or 'Video'}] {message.content}", "youtube", embed_data)
+                    elif 'tiktok' in str(embed.url).lower():
+                        response = await priya.process(user_id, f"[TIKTOK: {embed.title or 'Video'}] {message.content}", "tiktok", embed_data)
+                    elif 'twitter' in str(embed.url).lower() or 'x.com' in str(embed.url).lower():
+                        response = await priya.process(user_id, f"[TWITTER VIDEO: {embed.title or 'Video'}] {message.content}", "twitter_video", embed_data)
+                    else:
+                        response = await priya.process(user_id, f"[VIDEO EMBED: {embed.title or 'Video'}] {message.content}", "video_embed", embed_data)
+                        
+                elif embed.type == 'gifv' or (embed.video and 'gif' in str(embed.video.url).lower()):
+                    response = await priya.process(user_id, f"[GIF: {embed.title or 'Animated'}] {message.content}", "gif", embed_data)
+                    
+                elif embed.type == 'image' or embed.image:
+                    response = await priya.process(user_id, f"[IMAGE EMBED: {embed.title or 'Image'}] {message.content}", "image_embed", embed_data)
+                    
+                elif embed.type == 'link':
+                    if 'spotify' in str(embed.url).lower():
+                        response = await priya.process(user_id, f"[SPOTIFY: {embed.title or 'Music'}] {message.content}", "spotify", embed_data)
+                    elif 'soundcloud' in str(embed.url).lower():
+                        response = await priya.process(user_id, f"[SOUNDCLOUD: {embed.title or 'Audio'}] {message.content}", "soundcloud", embed_data)
+                    elif 'reddit' in str(embed.url).lower():
+                        response = await priya.process(user_id, f"[REDDIT: {embed.title or 'Post'}] {message.content}", "reddit_link", embed_data)
+                    elif 'github' in str(embed.url).lower():
+                        response = await priya.process(user_id, f"[GITHUB: {embed.title or 'Code'}] {message.content}", "github", embed_data)
+                    elif 'instagram' in str(embed.url).lower():
+                        response = await priya.process(user_id, f"[INSTAGRAM: {embed.title or 'Post'}] {message.content}", "instagram", embed_data)
+                    elif 'facebook' in str(embed.url).lower():
+                        response = await priya.process(user_id, f"[FACEBOOK: {embed.title or 'Post'}] {message.content}", "facebook", embed_data)
+                    elif any(domain in str(embed.url).lower() for domain in ['news', 'article', 'blog']):
+                        response = await priya.process(user_id, f"[ARTICLE: {embed.title or 'Link'}] {message.content}", "article", embed_data)
+                    else:
+                        response = await priya.process(user_id, f"[LINK: {embed.title or embed.url}] {message.content}", "link", embed_data)
+                        
+                elif embed.type == 'rich':
+                    # Rich embeds (like from bots, websites with custom embeds)
+                    response = await priya.process(user_id, f"[RICH EMBED: {embed.title or 'Content'}] {message.content}", "rich_embed", embed_data)
+                    
+                elif embed.type == 'article':
+                    response = await priya.process(user_id, f"[ARTICLE: {embed.title or 'Article'}] {message.content}", "article_embed", embed_data)
+                    
+                else:
+                    # Generic embed handling
+                    response = await priya.process(user_id, f"[EMBED: {embed.title or embed.type or 'Content'}] {message.content}", "generic_embed", embed_data)
         
         if message.stickers:
             response = await priya.process(user_id, f"[STICKER: {message.stickers[0].name}]", "sticker")
@@ -261,9 +361,58 @@ async def on_message(message):
             response = await priya.process(user_id, message.content, "text", metadata)
         
         if response:
-            async with message.channel.typing():
-                await asyncio.sleep(min(len(response) * 0.03, 3))
-                await message.channel.send(response, reference=message)
+            # Handle response with human-like timing
+            if isinstance(response, dict) and 'timing' in response:
+                timing = response['timing']
+                reply_text = response['text']
+                
+                # Show reaction delay (brief pause before typing)
+                if timing['reaction_delay'] > 0.3:
+                    await asyncio.sleep(timing['reaction_delay'])
+                
+                # Show typing indicator for longer responses
+                if timing['show_typing']:
+                    async with message.channel.typing():
+                        # Simulate realistic typing with pauses
+                        typing_delay = timing['typing_delay']
+                        
+                        # Break typing into chunks with pauses
+                        if timing.get('pauses'):
+                            words = reply_text.split()
+                            chunk_delay = typing_delay / len(words) if words else typing_delay
+                            
+                            for i, (pause_pos, pause_duration) in enumerate(timing['pauses']):
+                                if i == 0:  # First pause
+                                    await asyncio.sleep(chunk_delay * pause_pos)
+                                await asyncio.sleep(pause_duration)
+                            
+                            # Remaining typing time
+                            remaining_delay = max(0, typing_delay - sum(p[1] for p in timing['pauses']))
+                            if remaining_delay > 0:
+                                await asyncio.sleep(remaining_delay)
+                        else:
+                            await asyncio.sleep(typing_delay)
+                else:
+                    # Short delay without typing indicator
+                    await asyncio.sleep(min(timing['total_delay'], 2.0))
+                
+                await message.channel.send(reply_text, reference=message)
+                
+                # Add emoji reaction occasionally
+                if random.random() < 0.3:  # 30% chance
+                    reaction_emoji = priya.emoji_engine.get_reaction_emoji('agreement' if '?' not in message.content else 'surprise')
+                    try:
+                        await message.add_reaction(reaction_emoji)
+                    except:
+                        pass  # Ignore reaction failures
+            else:
+                # Fallback for simple string responses
+                reply_text = response if isinstance(response, str) else str(response)
+                async with message.channel.typing():
+                    # Simple delay based on message length
+                    delay = min(len(reply_text) * 0.03, 3)
+                    await asyncio.sleep(delay)
+                await message.channel.send(reply_text, reference=message)
                 
     except Exception as e:
         print(f"Message processing error: {e}")
