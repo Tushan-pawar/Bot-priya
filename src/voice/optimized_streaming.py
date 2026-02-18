@@ -92,14 +92,25 @@ class AsyncTTS:
         await loop.run_in_executor(None, self._load_model_sync)
     
     def _load_model_sync(self):
-        self.tts = TTS("tts_models/en/ljspeech/tacotron2-DDC")
+        self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
+        self.tts.to("cuda" if torch.cuda.is_available() else "cpu")
     
     async def synthesize(self, text: str) -> bytes:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._synthesize_sync, text)
     
     def _synthesize_sync(self, text: str) -> bytes:
-        wav = self.tts.tts(text)
+        # Add emotion and prosody based on text content
+        emotion = self._detect_emotion(text)
+        
+        # Configure TTS with emotion
+        wav = self.tts.tts(
+            text=text,
+            emotion=emotion,
+            speed=1.1 if "!" in text else 0.95,
+            pitch_shift=0.1 if "?" in text else 0.0
+        )
+        
         wav_np = np.array(wav, dtype=np.float32)
         wav_int16 = (wav_np * 32767).astype(np.int16)
         
@@ -111,6 +122,22 @@ class AsyncTTS:
             wav_file.writeframes(wav_int16.tobytes())
         
         return buffer.getvalue()
+    
+    def _detect_emotion(self, text: str) -> str:
+        text_lower = text.lower()
+        
+        if any(word in text_lower for word in ["excited", "amazing", "awesome", "yay", "woohoo"]):
+            return "excited"
+        elif any(word in text_lower for word in ["sad", "sorry", "disappointed", "upset"]):
+            return "sad"
+        elif "?" in text:
+            return "curious"
+        elif "!" in text:
+            return "enthusiastic"
+        elif any(word in text_lower for word in ["angry", "mad", "frustrated", "annoyed"]):
+            return "angry"
+        else:
+            return "neutral"
 
 class AsyncAudioSource(discord.AudioSource):
     def __init__(self):
