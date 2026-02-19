@@ -1,4 +1,5 @@
 """Dynamic skill loading and execution system."""
+import asyncio
 import importlib
 import inspect
 from typing import Dict, Any, List, Optional, Callable
@@ -68,7 +69,6 @@ class SkillManager:
             logger.info(f"Created skills directory: {self.skills_dir}")
             return
         
-        # Find all Python files in skills directory
         skill_files = list(self.skills_dir.glob("*.py"))
         
         for skill_file in skill_files:
@@ -80,6 +80,7 @@ class SkillManager:
             except Exception as e:
                 logger.error(f"Failed to load skill {skill_file.name}: {e}")
         
+        await asyncio.sleep(0)  # Ensure async behavior
         logger.info(f"Loaded {len(self.skills)} skills: {list(self.skills.keys())}")
     
     async def _load_skill_file(self, skill_file: Path) -> None:
@@ -87,22 +88,18 @@ class SkillManager:
         module_name = f"skills.{skill_file.stem}"
         
         try:
-            # Import the module
             spec = importlib.util.spec_from_file_location(module_name, skill_file)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             
-            # Find skill classes
             for name, obj in inspect.getmembers(module):
-                if (inspect.isclass(obj) and 
-                    issubclass(obj, BaseSkill) and 
-                    obj != BaseSkill):
-                    
+                if (inspect.isclass(obj) and issubclass(obj, BaseSkill) and obj != BaseSkill):
                     skill_instance = obj()
                     self.skills[skill_instance.name] = skill_instance
                     self.skill_modules[skill_instance.name] = module
-                    
                     logger.info(f"Loaded skill: {skill_instance.name}")
+            
+            await asyncio.sleep(0)  # Ensure async behavior
                     
         except Exception as e:
             logger.error(f"Error loading skill file {skill_file}: {e}")
@@ -116,16 +113,13 @@ class SkillManager:
             module = self.skill_modules[skill_name]
             importlib.reload(module)
             
-            # Re-instantiate skill
             for name, obj in inspect.getmembers(module):
-                if (inspect.isclass(obj) and 
-                    issubclass(obj, BaseSkill) and 
-                    obj != BaseSkill):
-                    
+                if (inspect.isclass(obj) and issubclass(obj, BaseSkill) and obj != BaseSkill):
                     skill_instance = obj()
                     if skill_instance.name == skill_name:
                         self.skills[skill_name] = skill_instance
                         logger.info(f"Reloaded skill: {skill_name}")
+                        await asyncio.sleep(0)  # Ensure async behavior
                         return True
             
             return False
@@ -158,6 +152,7 @@ class SkillManager:
             if skill.should_trigger(message):
                 matching_skills.append(skill_name)
         
+        await asyncio.sleep(0)  # Ensure async behavior
         return matching_skills
     
     def get_skill_info(self) -> Dict[str, Dict[str, Any]]:

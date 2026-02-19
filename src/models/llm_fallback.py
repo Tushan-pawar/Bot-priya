@@ -36,6 +36,7 @@ class LLMFallbackSystem:
         self.providers = self._init_providers()
         self.health_check_interval = 300  # 5 minutes
         self.last_health_check = 0
+        self._session = None  # Reusable session
         
     def _init_providers(self) -> List[ModelProvider]:
         """Initialize all available providers."""
@@ -133,7 +134,7 @@ class LLMFallbackSystem:
             import ollama
             ollama.list()
             return True
-        except:
+        except (ImportError, OSError):
             return False
     
     async def health_check(self):
@@ -177,7 +178,7 @@ class LLMFallbackSystem:
                         provider.status = ModelStatus.DEGRADED
                         provider.error_count += 1
                         
-        except Exception as e:
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             provider.status = ModelStatus.FAILED
             provider.error_count += 1
             logger.warning(f"Health check failed for {provider.name}: {e}")
@@ -206,18 +207,15 @@ class LLMFallbackSystem:
             p.avg_response_time
         ))
     
-    @with_retry(max_retries=2)
     async def generate_response(self, messages: List[Dict], temperature: float = 0.95) -> str:
-        """Generate response with automatic failover."""
-        await self.health_check()
+        """Generate response with parallel processing for speed."""
         available_providers = self.get_available_providers()
-        
         if not available_providers:
-            return await self._emergency_fallback()
+            return self._emergency_fallback()
         
-        # Try providers in parallel (top 3)
+        # Race top 2 providers instead of trying sequentially
         tasks = []
-        for provider in available_providers[:3]:
+        for provider in available_providers[:2]:
             task = asyncio.create_task(
                 self._try_provider(provider, messages, temperature)
             )
@@ -227,14 +225,14 @@ class LLMFallbackSystem:
             done, pending = await asyncio.wait(
                 [task for _, task in tasks],
                 return_when=asyncio.FIRST_COMPLETED,
-                timeout=config.model.timeout
+                timeout=5  # Reduced from 30s
             )
             
-            # Cancel pending tasks
+            # Cancel pending
             for task in pending:
                 task.cancel()
             
-            # Get first successful result
+            # Get first result
             for provider, task in tasks:
                 if task in done:
                     try:
@@ -242,18 +240,18 @@ class LLMFallbackSystem:
                         if result:
                             provider.used_today += 1
                             return result
-                    except Exception as e:
+                    except (aiohttp.ClientError, OSError) as e:
                         logger.error(f"Provider {provider.name} failed: {e}")
                         continue
             
         except asyncio.TimeoutError:
             logger.error("All providers timed out")
         
-        return await self._emergency_fallback()
+        return self._emergency_fallback()
     
-    @with_timeout(15)
+    @with_timeout(10)  # Reduced timeout
     async def _try_provider(self, provider: ModelProvider, messages: List[Dict], temperature: float) -> Optional[str]:
-        """Try a single provider."""
+        """Try a single provider with faster timeout."""
         start_time = time.time()
         
         try:
@@ -268,7 +266,7 @@ class LLMFallbackSystem:
             
             return result
             
-        except Exception as e:
+        except (aiohttp.ClientError, OSError) as e:
             duration = time.time() - start_time
             perf_logger.log_request("system", provider.name, duration, False)
             perf_logger.log_error(e, {"provider": provider.name})
@@ -294,21 +292,30 @@ class LLMFallbackSystem:
         return await loop.run_in_executor(None, ollama_call)
     
     async def _api_request(self, provider: ModelProvider, messages: List[Dict], temperature: float) -> str:
-        """Make API request to cloud provider."""
-        async with aiohttp.ClientSession() as session:
-            payload = self._build_payload(provider, messages, temperature)
-            
-            async with session.post(
-                provider.url,
-                headers=provider.headers,
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=config.model.timeout)
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return self._extract_response(provider, data)
-                else:
-                    raise Exception(f"API error: {response.status}")
+        """Make API request with connection reuse."""
+        # Reuse session for better performance
+        if not hasattr(self, '_session') or self._session.closed:
+            timeout = aiohttp.ClientTimeout(total=8, connect=2)
+            connector = aiohttp.TCPConnector(limit=50, keepalive_timeout=30)
+            self._session = aiohttp.ClientSession(timeout=timeout, connector=connector)
+        
+        payload = self._build_payload(provider, messages, temperature)
+        
+        async with self._session.post(
+            provider.url,
+            headers=provider.headers,
+            json=payload
+        ) as response:
+            if response.status == 200:
+                data = await response.json()
+                return self._extract_response(provider, data)
+            else:
+                raise aiohttp.ClientResponseError(
+                    request_info=response.request_info,
+                    history=response.history,
+                    status=response.status,
+                    message=f"API error: {response.status}"
+                )
     
     def _build_payload(self, provider: ModelProvider, messages: List[Dict], temperature: float) -> Dict:
         """Build request payload for provider."""
@@ -354,7 +361,7 @@ class LLMFallbackSystem:
             # Standard OpenAI format
             return data['choices'][0]['message']['content']
     
-    async def _emergency_fallback(self) -> str:
+    def _emergency_fallback(self) -> str:
         """Emergency fallback response."""
         fallbacks = [
             "Arre yaar, all my AI models are acting up right now... 😅 Try again in a moment!",

@@ -43,6 +43,55 @@ class AdminDashboard:
             )
         return credentials.credentials
     
+    def _get_memory_stats(self):
+        """Get memory statistics from database."""
+        try:
+            import sqlite3
+            with sqlite3.connect(memory_system.db_path) as conn:
+                total = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+                users = conn.execute("SELECT COUNT(DISTINCT user_id) FROM memories").fetchone()[0]
+                return total, users
+        except Exception as e:
+            logger.error(f"Failed to get memory stats: {e}")
+            return 0, 0
+    
+    def _fetch_memories(self, user_id: Optional[str], limit: int):
+        """Fetch memories from database."""
+        import sqlite3
+        with sqlite3.connect(memory_system.db_path) as conn:
+            if user_id:
+                cursor = conn.execute(
+                    "SELECT user_id, content, timestamp, importance FROM memories WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?",
+                    (user_id, limit)
+                )
+            else:
+                cursor = conn.execute(
+                    "SELECT user_id, content, timestamp, importance FROM memories ORDER BY timestamp DESC LIMIT ?",
+                    (limit,)
+                )
+            return [{
+                "user_id": row[0],
+                "content": row[1][:200] + ("..." if len(row[1]) > 200 else ""),
+                "timestamp": row[2],
+                "importance": row[3]
+            } for row in cursor.fetchall()]
+    
+    def _fetch_users(self):
+        """Fetch user statistics from database."""
+        import sqlite3
+        with sqlite3.connect(memory_system.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT user_id, COUNT(*) as memory_count, MAX(timestamp) as last_interaction, AVG(importance) as avg_importance
+                FROM memories GROUP BY user_id ORDER BY memory_count DESC
+            """)
+            return [{
+                "user_id": row[0],
+                "memory_count": row[1],
+                "last_interaction": row[2],
+                "avg_importance": round(row[3], 2) if row[3] else 0,
+                "status": "active" if row[0] in self.active_users else "inactive"
+            } for row in cursor.fetchall()]
+    
     def setup_routes(self):
         """Setup FastAPI routes."""
         
@@ -57,28 +106,11 @@ class AdminDashboard:
         @self.app.get("/api/stats")
         async def get_stats(token: str = Depends(self.verify_token)):
             """Get system statistics."""
-            # Get memory stats
-            total_memories = 0
-            user_count = 0
-            
-            try:
-                import sqlite3
-                with sqlite3.connect(memory_system.db_path) as conn:
-                    cursor = conn.execute("SELECT COUNT(*) FROM memories")
-                    total_memories = cursor.fetchone()[0]
-                    
-                    cursor = conn.execute("SELECT COUNT(DISTINCT user_id) FROM memories")
-                    user_count = cursor.fetchone()[0]
-            except Exception as e:
-                logger.error(f"Failed to get memory stats: {e}")
-            
-            # Get skill stats
-            skills_info = skill_manager.get_skill_info()
-            
+            total_memories, user_count = self._get_memory_stats()
             return {
                 "total_memories": total_memories,
                 "unique_users": user_count,
-                "active_skills": len(skills_info),
+                "active_skills": len(skill_manager.get_skill_info()),
                 "active_users": len(self.active_users),
                 "uptime": str(datetime.now() - datetime.now().replace(hour=0, minute=0, second=0)),
                 "system_status": "healthy"
@@ -87,49 +119,13 @@ class AdminDashboard:
         @self.app.get("/api/logs")
         async def get_logs(limit: int = 100, token: str = Depends(self.verify_token)):
             """Get recent system logs."""
-            # In production, read from actual log files
-            return {
-                "logs": self.system_logs[-limit:],
-                "total": len(self.system_logs)
-            }
+            return {"logs": self.system_logs[-limit:], "total": len(self.system_logs)}
         
         @self.app.get("/api/memories")
-        async def get_memories(
-            user_id: Optional[str] = None, 
-            limit: int = 50,
-            token: str = Depends(self.verify_token)
-        ):
+        async def get_memories(user_id: Optional[str] = None, limit: int = 50, token: str = Depends(self.verify_token)):
             """Get memory entries."""
             try:
-                import sqlite3
-                with sqlite3.connect(memory_system.db_path) as conn:
-                    if user_id:
-                        cursor = conn.execute("""
-                            SELECT user_id, content, timestamp, importance 
-                            FROM memories 
-                            WHERE user_id = ? 
-                            ORDER BY timestamp DESC 
-                            LIMIT ?
-                        """, (user_id, limit))
-                    else:
-                        cursor = conn.execute("""
-                            SELECT user_id, content, timestamp, importance 
-                            FROM memories 
-                            ORDER BY timestamp DESC 
-                            LIMIT ?
-                        """, (limit,))
-                    
-                    memories = []
-                    for row in cursor.fetchall():
-                        memories.append({
-                            "user_id": row[0],
-                            "content": row[1][:200] + ("..." if len(row[1]) > 200 else ""),
-                            "timestamp": row[2],
-                            "importance": row[3]
-                        })
-                    
-                    return {"memories": memories}
-                    
+                return {"memories": self._fetch_memories(user_id, limit)}
             except Exception as e:
                 logger.error(f"Failed to get memories: {e}")
                 return {"memories": [], "error": str(e)}
@@ -138,81 +134,42 @@ class AdminDashboard:
         async def get_users(token: str = Depends(self.verify_token)):
             """Get user statistics."""
             try:
-                import sqlite3
-                with sqlite3.connect(memory_system.db_path) as conn:
-                    cursor = conn.execute("""
-                        SELECT user_id, COUNT(*) as memory_count, 
-                               MAX(timestamp) as last_interaction,
-                               AVG(importance) as avg_importance
-                        FROM memories 
-                        GROUP BY user_id 
-                        ORDER BY memory_count DESC
-                    """)
-                    
-                    users = []
-                    for row in cursor.fetchall():
-                        users.append({
-                            "user_id": row[0],
-                            "memory_count": row[1],
-                            "last_interaction": row[2],
-                            "avg_importance": round(row[3], 2) if row[3] else 0,
-                            "status": "active" if row[0] in self.active_users else "inactive"
-                        })
-                    
-                    return {"users": users}
-                    
+                return {"users": self._fetch_users()}
             except Exception as e:
                 logger.error(f"Failed to get users: {e}")
                 return {"users": [], "error": str(e)}
         
         @self.app.post("/api/personality")
-        async def set_personality_mode(
-            request: Request,
-            token: str = Depends(self.verify_token)
-        ):
+        async def set_personality_mode(request: Request, token: str = Depends(self.verify_token)):
             """Set personality mode for a server."""
             data = await request.json()
-            server_id = data.get("server_id")
-            mode = data.get("mode")
-            
+            server_id, mode = data.get("server_id"), data.get("mode")
             if not server_id or not mode:
                 raise HTTPException(400, "server_id and mode required")
-            
-            # Update personality mode
             from ..discord_integration.native_features import discord_integration
-            if discord_integration:
-                discord_integration.personality_modes[server_id] = mode
-                
-                self.log_action(f"Personality mode changed to {mode} for server {server_id}")
-                return {"success": True, "message": f"Personality mode set to {mode}"}
-            
-            raise HTTPException(500, "Discord integration not available")
+            if not discord_integration:
+                raise HTTPException(500, "Discord integration not available")
+            discord_integration.personality_modes[server_id] = mode
+            self.log_action(f"Personality mode changed to {mode} for server {server_id}")
+            return {"success": True, "message": f"Personality mode set to {mode}"}
         
         @self.app.get("/api/skills")
         async def get_skills(token: str = Depends(self.verify_token)):
             """Get loaded skills information."""
-            skills_info = skill_manager.get_skill_info()
-            return {"skills": skills_info}
+            return {"skills": skill_manager.get_skill_info()}
         
         @self.app.post("/api/skills/reload")
-        async def reload_skill(
-            request: Request,
-            token: str = Depends(self.verify_token)
-        ):
+        async def reload_skill(request: Request, token: str = Depends(self.verify_token)):
             """Reload a specific skill."""
             data = await request.json()
             skill_name = data.get("skill_name")
-            
             if not skill_name:
                 raise HTTPException(400, "skill_name required")
-            
             success = await skill_manager.reload_skill(skill_name)
-            
             if success:
                 self.log_action(f"Skill {skill_name} reloaded successfully")
                 return {"success": True, "message": f"Skill {skill_name} reloaded"}
-            else:
-                raise HTTPException(500, f"Failed to reload skill {skill_name}")
+            raise HTTPException(500, f"Failed to reload skill {skill_name}")
     
     def log_action(self, message: str):
         """Log admin action."""

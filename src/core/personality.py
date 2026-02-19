@@ -17,10 +17,10 @@ class UserContext:
     friendship_level: int = 0
     trust_score: int = 0
     relationship_stage: str = "stranger"
-    personality_traits: Dict[str, float] = None
-    preferences: Dict[str, Any] = None
-    mood_history: List[Dict] = None
-    last_interaction: str = None
+    personality_traits: Optional[Dict[str, float]] = None
+    preferences: Optional[Dict[str, Any]] = None
+    mood_history: Optional[List[Dict]] = None
+    last_interaction: Optional[str] = None
     
     def __post_init__(self):
         if self.personality_traits is None:
@@ -36,8 +36,8 @@ class PriyaState:
     mood: str = "happy"
     energy: float = 0.8
     current_activity: str = "free"
-    physical_state: Dict[str, bool] = None
-    emotional_state: Dict[str, float] = None
+    physical_state: Optional[Dict[str, bool]] = None
+    emotional_state: Optional[Dict[str, float]] = None
     schedule_context: str = ""
     
     def __post_init__(self):
@@ -100,7 +100,7 @@ class ActivityEngine:
             'description': 'Just chilling'
         }
     
-    def should_respond(self, user_id: str, message: str, is_mention: bool = False) -> Dict[str, Any]:
+    def should_respond(self, is_mention: bool = False) -> Dict[str, Any]:
         """Determine response probability based on activity."""
         current = self.get_current_activity()
         base_availability = current['availability']
@@ -168,7 +168,7 @@ class MemorySystem:
             except Exception as e:
                 logger.error(f"Failed to load memory: {e}")
     
-    async def save_memory(self, force: bool = False):
+    def save_memory(self, force: bool = False):
         """Save memory to disk."""
         import time
         current_time = time.time()
@@ -228,12 +228,12 @@ class MemorySystem:
         if len(history) > 20:
             self.conversation_history[user_id] = history[-20:]
     
-    async def cleanup_old_data(self):
+    def cleanup_old_data(self):
         """Clean up old conversation data."""
         cutoff_date = datetime.now() - timedelta(days=30)
         cleaned_count = 0
         
-        for user_id, history in list(self.conversation_history.items()):
+        for user_id, history in self.conversation_history.items():
             filtered_history = []
             for conv in history:
                 try:
@@ -242,7 +242,7 @@ class MemorySystem:
                         filtered_history.append(conv)
                     else:
                         cleaned_count += 1
-                except:
+                except (ValueError, KeyError):
                     continue
             
             if filtered_history:
@@ -252,7 +252,7 @@ class MemorySystem:
         
         if cleaned_count > 0:
             logger.info(f"Cleaned up {cleaned_count} old conversation entries")
-            await self.save_memory(force=True)
+            self.save_memory(force=True)
 
 class PersonalityEngine:
     """Manages Priya's personality and responses."""
@@ -350,7 +350,7 @@ class PriyaCore:
         self.priya_state = PriyaState()
         
         # Start background tasks
-        asyncio.create_task(self._background_tasks())
+        self._background_task = asyncio.create_task(self._background_tasks())
     
     async def _background_tasks(self):
         """Background maintenance tasks."""
@@ -360,7 +360,7 @@ class PriyaCore:
                 self._update_state()
                 
                 # Save memory periodically
-                await self.memory_system.save_memory()
+                self.memory_system.save_memory()
                 
                 # Memory cleanup
                 await memory_manager.check_memory()
@@ -389,9 +389,9 @@ class PriyaCore:
         else:
             self.priya_state.energy = 0.5
     
-    def should_respond(self, user_id: str, message: str, is_mention: bool = False) -> Dict[str, Any]:
+    def should_respond(self, is_mention: bool = False) -> Dict[str, Any]:
         """Check if Priya should respond."""
-        return self.activity_engine.should_respond(user_id, message, is_mention)
+        return self.activity_engine.should_respond(is_mention)
     
     def get_context_for_response(self, user_id: str) -> tuple[UserContext, PriyaState, Dict]:
         """Get all context needed for response generation."""
@@ -399,10 +399,10 @@ class PriyaCore:
         activity = self.activity_engine.get_current_activity()
         return user_ctx, self.priya_state, activity
     
-    async def update_after_interaction(self, user_id: str, message: str, response: str):
+    def update_after_interaction(self, user_id: str, message: str, response: str):
         """Update state after interaction."""
         self.memory_system.update_context(user_id, message, response)
-        await self.memory_system.save_memory()
+        self.memory_system.save_memory()
 
 # Global instance
 priya_core = PriyaCore()

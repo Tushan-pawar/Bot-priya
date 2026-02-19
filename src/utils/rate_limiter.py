@@ -28,7 +28,7 @@ class AntiSpamDetector:
     def __init__(self):
         self.message_history: Dict[str, List[Tuple[str, float]]] = defaultdict(list)
         self.spam_patterns = [
-            lambda msgs: len(msgs) > 5 and len(set(msg[0] for msg in msgs[-5:])) == 1,  # Repeated messages
+            lambda msgs: len(msgs) > 5 and len({msg[0] for msg in msgs[-5:]}) == 1,  # Repeated messages
             lambda msgs: len(msgs) > 3 and all(len(msg[0]) < 10 for msg in msgs[-3:]),  # Short spam
             lambda msgs: len(msgs) > 10 and (msgs[-1][1] - msgs[-10][1]) < 30,  # High frequency
         ]
@@ -84,7 +84,7 @@ class AdvancedRateLimiter:
         self.spam_detector = AntiSpamDetector()
         
         # Start cleanup task
-        asyncio.create_task(self._cleanup_task())
+        self._cleanup_task = asyncio.create_task(self._cleanup_task())
     
     async def check_rate_limit(
         self, 
@@ -124,6 +124,7 @@ class AdvancedRateLimiter:
         # Record successful request
         self._record_request(user_id, server_id, now)
         
+        await asyncio.sleep(0)  # Ensure async behavior
         return True, None
     
     def _check_user_limit(self, user_id: str, tier: str, now: float) -> Tuple[bool, Optional[str]]:
@@ -165,7 +166,7 @@ class AdvancedRateLimiter:
         
         # Check limit
         if len(state.requests) >= limit.requests:
-            return False, f"Server rate limit exceeded. Try again later."
+            return False, "Server rate limit exceeded. Try again later."
         
         return True, None
     

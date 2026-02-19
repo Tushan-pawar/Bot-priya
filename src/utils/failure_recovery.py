@@ -109,7 +109,7 @@ class FailureRecoverySystem:
         
         # Check circuit breaker
         if self._is_circuit_open(context.failure_type.value):
-            return await self._circuit_breaker_response(context)
+            return self._circuit_breaker_response(context)
         
         # Try specific handler
         if context.failure_type in self.failure_handlers:
@@ -118,11 +118,11 @@ class FailureRecoverySystem:
                 if result.get('success'):
                     self._reset_circuit_breaker(context.failure_type.value)
                     return result
-            except Exception as e:
-                logger.error(f"Failure handler failed: {e}")
+            except Exception as handler_error:
+                logger.error(f"Failure handler failed: {handler_error}")
         
         # Fallback to generic response
-        return await self._generic_fallback(context)
+        return self._generic_fallback(context)
     
     def _is_circuit_open(self, operation: str) -> bool:
         """Check if circuit breaker is open for operation."""
@@ -162,7 +162,7 @@ class FailureRecoverySystem:
             self.circuit_breakers[operation]['state'] = 'closed'
             self.circuit_breakers[operation]['failure_count'] = 0
     
-    async def _circuit_breaker_response(self, context: FailureContext) -> Dict[str, Any]:
+    def _circuit_breaker_response(self, context: FailureContext) -> Dict[str, Any]:
         """Response when circuit breaker is open."""
         return {
             'success': False,
@@ -171,7 +171,7 @@ class FailureRecoverySystem:
             'circuit_breaker': True
         }
     
-    async def _generic_fallback(self, context: FailureContext) -> Dict[str, Any]:
+    def _generic_fallback(self, context: FailureContext) -> Dict[str, Any]:
         """Generic fallback response."""
         import random
         responses = self.fallback_responses.get(
@@ -212,9 +212,9 @@ class FailureRecoverySystem:
             
             return {'success': True, 'response': random.choice(responses)}
             
-        except Exception as e:
-            logger.error(f"LLM fallback failed: {e}")
-            return await self._generic_fallback(context)
+        except Exception as llm_error:
+            logger.error(f"LLM fallback failed: {llm_error}")
+            return self._generic_fallback(context)
     
     async def _handle_ollama_timeout(self, context: FailureContext) -> Dict[str, Any]:
         """Handle Ollama timeout."""
@@ -232,25 +232,22 @@ class FailureRecoverySystem:
                 if response:
                     return {'success': True, 'response': response}
             
-            return await self._generic_fallback(context)
+            return self._generic_fallback(context)
             
-        except Exception as e:
-            logger.error(f"Ollama timeout fallback failed: {e}")
-            return await self._generic_fallback(context)
+        except Exception as ollama_error:
+            logger.error(f"Ollama timeout fallback failed: {ollama_error}")
+            return self._generic_fallback(context)
     
-    async def _handle_vector_db_failure(self, context: FailureContext) -> Dict[str, Any]:
+    def _handle_vector_db_failure(self, context: FailureContext) -> Dict[str, Any]:
         """Handle vector database failure."""
-        try:
-            # Continue without memory retrieval
-            return {
-                'success': True,
-                'response': "I'm having trouble accessing my memories, but let's continue our chat! 💭",
-                'disable_memory': True
-            }
-        except Exception as e:
-            return await self._generic_fallback(context)
+        # Continue without memory retrieval
+        return {
+            'success': True,
+            'response': "I'm having trouble accessing my memories, but let's continue our chat! 💭",
+            'disable_memory': True
+        }
     
-    async def _handle_tts_failure(self, context: FailureContext) -> Dict[str, Any]:
+    def _handle_tts_failure(self, context: FailureContext) -> Dict[str, Any]:
         """Handle TTS failure."""
         return {
             'success': True,
@@ -258,7 +255,7 @@ class FailureRecoverySystem:
             'disable_voice': True
         }
     
-    async def _handle_voice_disconnect(self, context: FailureContext) -> Dict[str, Any]:
+    def _handle_voice_disconnect(self, context: FailureContext) -> Dict[str, Any]:
         """Handle voice disconnection."""
         return {
             'success': True,
@@ -266,7 +263,7 @@ class FailureRecoverySystem:
             'reconnect_voice': True
         }
     
-    async def _handle_tool_error(self, context: FailureContext) -> Dict[str, Any]:
+    def _handle_tool_error(self, context: FailureContext) -> Dict[str, Any]:
         """Handle tool execution error."""
         return {
             'success': True,
@@ -274,7 +271,7 @@ class FailureRecoverySystem:
             'disable_tools': True
         }
     
-    async def _handle_memory_error(self, context: FailureContext) -> Dict[str, Any]:
+    def _handle_memory_error(self, context: FailureContext) -> Dict[str, Any]:
         """Handle memory system error."""
         return {
             'success': True,
@@ -282,17 +279,14 @@ class FailureRecoverySystem:
             'disable_memory': True
         }
     
-    async def _handle_network_error(self, context: FailureContext) -> Dict[str, Any]:
+    def _handle_network_error(self, context: FailureContext) -> Dict[str, Any]:
         """Handle network error."""
-        try:
-            # Switch to local-only mode temporarily
-            return {
-                'success': True,
-                'response': "Network issues detected! Switching to offline mode... 📡",
-                'local_only': True
-            }
-        except Exception as e:
-            return await self._generic_fallback(context)
+        # Switch to local-only mode temporarily
+        return {
+            'success': True,
+            'response': "Network issues detected! Switching to offline mode... 📡",
+            'local_only': True
+        }
     
     def get_failure_stats(self) -> Dict[str, Any]:
         """Get failure statistics."""

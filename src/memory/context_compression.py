@@ -67,7 +67,7 @@ class ContextCompressor:
                 remaining_tokens -= chunk_tokens
             else:
                 # Create summary for this chunk
-                summary = await self._create_summary(chunk, user_id, server_id)
+                summary = await self._create_summary(chunk)
                 if summary:
                     await self._save_summary(user_id, summary, server_id)
         
@@ -94,12 +94,7 @@ class ContextCompressor:
         
         return chunks
     
-    async def _create_summary(
-        self, 
-        text: str, 
-        user_id: str, 
-        server_id: Optional[str] = None
-    ) -> Optional[str]:
+    async def _create_summary(self, text: str) -> Optional[str]:
         """Create summary of text chunk."""
         try:
             from ..models.llm_fallback import llm_system
@@ -138,56 +133,44 @@ Summary:"""
             importance=0.7
         )
     
-    async def _get_existing_summaries(
-        self, 
-        user_id: str, 
-        server_id: Optional[str] = None
-    ) -> List[str]:
+    async def _get_existing_summaries(self, user_id: str, server_id: Optional[str] = None) -> List[str]:
         """Get existing summaries for user."""
         try:
-            import sqlite3
-            with sqlite3.connect(memory_system.db_path) as conn:
-                query = """
-                    SELECT content FROM memories 
-                    WHERE user_id = ? AND content LIKE '[SUMMARY]%'
-                """
-                params = [user_id]
-                
-                if server_id:
-                    query += " AND (server_id = ? OR server_id IS NULL)"
-                    params.append(server_id)
-                
-                query += " ORDER BY timestamp DESC LIMIT 5"
-                
-                cursor = conn.execute(query, params)
-                summaries = []
-                
-                for row in cursor.fetchall():
-                    content = row[0]
-                    if content.startswith("[SUMMARY]"):
-                        summaries.append(content[9:].strip())  # Remove [SUMMARY] prefix
-                
-                return summaries
-                
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, self._fetch_summaries, user_id, server_id)
         except Exception as e:
             logger.error(f"Failed to get summaries: {e}")
             return []
     
+    def _fetch_summaries(self, user_id: str, server_id: Optional[str]) -> List[str]:
+        """Fetch summaries from database."""
+        import sqlite3
+        with sqlite3.connect(memory_system.db_path) as conn:
+            query = "SELECT content FROM memories WHERE user_id = ? AND content LIKE '[SUMMARY]%'"
+            params = [user_id]
+            if server_id:
+                query += " AND (server_id = ? OR server_id IS NULL)"
+                params.append(server_id)
+            query += " ORDER BY timestamp DESC LIMIT 5"
+            cursor = conn.execute(query, params)
+            return [row[0][9:].strip() for row in cursor.fetchall() if row[0].startswith("[SUMMARY]")]
+    
     async def cleanup_old_summaries(self, days: int = 30):
         """Clean up old summaries."""
         try:
-            import sqlite3
-            with sqlite3.connect(memory_system.db_path) as conn:
-                conn.execute("""
-                    DELETE FROM memories 
-                    WHERE content LIKE '[SUMMARY]%' 
-                    AND timestamp < datetime('now', '-{} days')
-                """.format(days))
-                
-                logger.info("Cleaned up old summaries")
-                
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self._cleanup_summaries, days)
+            logger.info("Cleaned up old summaries")
         except Exception as e:
             logger.error(f"Failed to cleanup summaries: {e}")
+    
+    def _cleanup_summaries(self, days: int):
+        """Delete old summaries from database."""
+        import sqlite3
+        with sqlite3.connect(memory_system.db_path) as conn:
+            conn.execute(
+                "DELETE FROM memories WHERE content LIKE '[SUMMARY]%' AND timestamp < datetime('now', '-{} days')".format(days)
+            )
 
 # Global instance
 context_compressor = ContextCompressor()

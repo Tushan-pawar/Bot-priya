@@ -15,6 +15,9 @@ from .core.personality import priya_core
 from .models.llm_fallback import llm_system
 from .engines.voice import voice_engine
 
+# Constants
+SEPARATOR_LINE = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
 class PriyaBot(commands.Bot):
     """Production-grade Priya Discord bot."""
     
@@ -62,7 +65,7 @@ class PriyaBot(commands.Bot):
             self.models_warmed = True
             logger.info("Model warmup completed successfully")
             
-        except Exception as e:
+        except (asyncio.TimeoutError, ConnectionError, RuntimeError) as e:
             logger.error(f"Model warmup failed: {e}")
             # Continue anyway with graceful degradation
     
@@ -84,16 +87,16 @@ class PriyaBot(commands.Bot):
                 
                 await asyncio.sleep(300)  # 5 minutes
                 
-            except Exception as e:
+            except (asyncio.TimeoutError, RuntimeError) as e:
                 logger.error(f"Background maintenance error: {e}")
                 await asyncio.sleep(60)
     
     async def on_ready(self):
         """Called when bot is ready."""
         logger.info(f"✅ {self.user} is ready!")
-        logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        logger.info(SEPARATOR_LINE)
         logger.info("🎉 PRIYA - PRODUCTION GRADE SYSTEM")
-        logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        logger.info(SEPARATOR_LINE)
         logger.info("✅ Modular architecture")
         logger.info("✅ LLM fallback system")
         logger.info("✅ Voice processing")
@@ -103,7 +106,7 @@ class PriyaBot(commands.Bot):
         logger.info("✅ Timeout handling")
         logger.info("✅ Type hints & docstrings")
         logger.info(f"✅ Models warmed: {self.models_warmed}")
-        logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        logger.info(SEPARATOR_LINE)
         
         # Log system status
         llm_status = llm_system.get_status()
@@ -167,7 +170,7 @@ class PriyaBot(commands.Bot):
                 # Start recording (simplified for production)
                 logger.info(f"Voice connection established for {user_id} in guild {guild_id}")
                 
-        except Exception as e:
+        except (discord.ClientException, asyncio.TimeoutError, RuntimeError) as e:
             logger.error(f"Failed to join voice channel: {e}")
             await ctx.send(f"Couldn't join voice: {str(e)[:100]} 😅")
     
@@ -211,7 +214,7 @@ class PriyaBot(commands.Bot):
             
             logger.info(f"Voice connection closed for guild {guild_id}")
             
-        except Exception as e:
+        except (discord.ClientException, RuntimeError) as e:
             logger.error(f"Error leaving voice channel: {e}")
             await ctx.send(f"Error leaving voice: {str(e)[:100]} 😅")
     
@@ -242,7 +245,7 @@ class PriyaBot(commands.Bot):
             
             await ctx.send(status_msg)
             
-        except Exception as e:
+        except (KeyError, RuntimeError) as e:
             logger.error(f"Status command error: {e}")
             await ctx.send("Couldn't get status right now 😅")
     
@@ -296,10 +299,10 @@ class PriyaBot(commands.Bot):
                     {"role": "user", "content": message.content}
                 ]
                 
-                # Show typing indicator
+                # Show typing indicator with reduced delay
                 async with message.channel.typing():
-                    # Add realistic delay
-                    delay = min(len(message.content) * 0.03, 3) * response_decision['delay_multiplier']
+                    # Minimal realistic delay
+                    delay = min(len(message.content) * 0.01, 1.5) * response_decision['delay_multiplier']
                     await asyncio.sleep(delay)
                     
                     # Generate response
@@ -319,7 +322,7 @@ class PriyaBot(commands.Bot):
                         
                         logger.info(f"Response sent to {user_id}", extra={'user_id': user_id})
         
-        except Exception as e:
+        except (asyncio.TimeoutError, ConnectionError, RuntimeError) as e:
             logger.error(f"Message processing error: {e}", extra={'user_id': user_id})
             perf_logger.log_error(e, {'user_id': user_id, 'message_length': len(message.content)})
             
@@ -330,7 +333,7 @@ class PriyaBot(commands.Bot):
                     "Oops, technical difficulties! Give me a sec 🔧"
                 ]
                 await message.reply(random.choice(fallback_responses))
-            except:
+            except discord.HTTPException:
                 pass  # Don't fail on fallback
     
     async def on_error(self, event, *args, **kwargs):
@@ -348,7 +351,7 @@ async def run_bot():
     
     try:
         await bot.start(config.discord_token)
-    except Exception as e:
+    except (discord.LoginFailure, discord.HTTPException, ConnectionError) as e:
         logger.error(f"Failed to start bot: {e}")
         raise
     finally:
@@ -361,7 +364,7 @@ def main():
         asyncio.run(run_bot())
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
-    except Exception as e:
+    except (RuntimeError, OSError) as e:
         logger.error(f"Fatal error: {e}")
         raise
 

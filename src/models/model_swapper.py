@@ -30,7 +30,7 @@ class ModelHotSwapper:
         self._initialize_models()
         
         # Start health check task
-        asyncio.create_task(self._health_check_loop())
+        self._health_check_task = asyncio.create_task(self._health_check_loop())
     
     def _initialize_models(self):
         """Initialize available models."""
@@ -48,41 +48,24 @@ class ModelHotSwapper:
     
     async def switch_model(self, model_name: str, force: bool = False) -> bool:
         """Switch to a different model."""
-        if self.switching_in_progress and not force:
-            logger.warning("Model switch already in progress")
-            return False
-        
-        if model_name not in self.available_models:
-            logger.error(f"Model {model_name} not available")
-            return False
-        
-        if model_name == self.current_model:
-            logger.info(f"Already using model {model_name}")
-            return True
+        if not self._can_switch_model(model_name, force):
+            return model_name == self.current_model
         
         self.switching_in_progress = True
         
         try:
-            # Health check new model
             logger.info(f"Switching to model {model_name}...")
             
-            if not force:
-                health_ok = await self._check_model_health(model_name)
-                if not health_ok:
-                    logger.error(f"Model {model_name} failed health check")
-                    return False
+            if not force and not await self._validate_new_model(model_name):
+                return False
             
-            # Switch model
             old_model = self.current_model
             self.current_model = model_name
             
-            # Test the switch with a simple query
-            if not force:
-                test_ok = await self._test_model_switch()
-                if not test_ok:
-                    logger.error(f"Model {model_name} failed test query, reverting...")
-                    self.current_model = old_model
-                    return False
+            if not force and not await self._test_model_switch():
+                logger.error(f"Model {model_name} failed test query, reverting...")
+                self.current_model = old_model
+                return False
             
             logger.info(f"Successfully switched from {old_model} to {model_name}")
             return True
@@ -94,46 +77,71 @@ class ModelHotSwapper:
         finally:
             self.switching_in_progress = False
     
+    def _can_switch_model(self, model_name: str, force: bool) -> bool:
+        """Check if model switch is allowed."""
+        if self.switching_in_progress and not force:
+            logger.warning("Model switch already in progress")
+            return False
+        
+        if model_name not in self.available_models:
+            logger.error(f"Model {model_name} not available")
+            return False
+        
+        if model_name == self.current_model:
+            logger.info(f"Already using model {model_name}")
+            return False
+        
+        return True
+    
+    async def _validate_new_model(self, model_name: str) -> bool:
+        """Validate new model health."""
+        health_ok = await self._check_model_health(model_name)
+        if not health_ok:
+            logger.error(f"Model {model_name} failed health check")
+        return health_ok
+    
     async def _check_model_health(self, model_name: str) -> bool:
         """Check if model is healthy."""
         model_info = self.available_models[model_name]
-        
         try:
             start_time = time.time()
-            
-            if model_info.provider == "ollama":
-                health_ok = await self._check_ollama_model(model_info.name)
-            else:
-                # For API models, use existing health check
-                health_ok = True  # Simplified for now
-            
+            health_ok = await self._check_ollama_model(model_info.name) if model_info.provider == "ollama" else True
             response_time = time.time() - start_time
-            
-            if health_ok:
-                model_info.status = "healthy"
-                model_info.response_time = response_time
-                model_info.success_count += 1
-                model_info.error_count = max(0, model_info.error_count - 1)  # Decay errors
-            else:
-                model_info.status = "failed"
-                model_info.error_count += 1
-            
-            model_info.last_check = time.time()
+            self._update_model_status(model_info, health_ok, response_time)
             return health_ok
-            
         except Exception as e:
             logger.error(f"Health check failed for {model_name}: {e}")
+            self._mark_model_failed(model_info)
+            return False
+    
+    def _update_model_status(self, model_info: ModelInfo, health_ok: bool, response_time: float):
+        """Update model status after health check."""
+        if health_ok:
+            model_info.status = "healthy"
+            model_info.response_time = response_time
+            model_info.success_count += 1
+            model_info.error_count = max(0, model_info.error_count - 1)
+        else:
             model_info.status = "failed"
             model_info.error_count += 1
-            model_info.last_check = time.time()
-            return False
+        model_info.last_check = time.time()
+    
+    def _mark_model_failed(self, model_info: ModelInfo):
+        """Mark model as failed."""
+        model_info.status = "failed"
+        model_info.error_count += 1
+        model_info.last_check = time.time()
     
     async def _check_ollama_model(self, model_name: str) -> bool:
         """Check Ollama model health."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._check_ollama_sync, model_name)
+    
+    def _check_ollama_sync(self, model_name: str) -> bool:
+        """Synchronous Ollama health check."""
         try:
             import ollama
             
-            # Try to list models first
             models = ollama.list()
             model_names = [model['name'].split(':')[0] for model in models['models']]
             
@@ -146,7 +154,6 @@ class ModelHotSwapper:
                     logger.error(f"Failed to pull model {model_name}: {e}")
                     return False
             
-            # Test with simple query
             response = ollama.chat(
                 model=model_name,
                 messages=[{"role": "user", "content": "Hello"}],
@@ -200,27 +207,31 @@ class ModelHotSwapper:
         while True:
             try:
                 await asyncio.sleep(self.health_check_interval)
-                
-                # Check current model health
-                if self.current_model:
-                    current_healthy = await self._check_model_health(self.current_model)
-                    
-                    if not current_healthy:
-                        logger.warning(f"Current model {self.current_model} is unhealthy")
-                        
-                        # Try auto-fallback if model has too many errors
-                        model_info = self.available_models[self.current_model]
-                        if model_info.error_count > 3:
-                            logger.warning(f"Model {self.current_model} has {model_info.error_count} errors, attempting fallback")
-                            await self.auto_fallback()
-                
-                # Check fallback models periodically
-                for model_name in self.fallback_models:
-                    if model_name != self.current_model:
-                        await self._check_model_health(model_name)
-                
+                await self._check_current_model()
+                await self._check_fallback_models()
             except Exception as e:
                 logger.error(f"Health check loop error: {e}")
+    
+    async def _check_current_model(self):
+        """Check current model health and fallback if needed."""
+        if not self.current_model:
+            return
+        
+        current_healthy = await self._check_model_health(self.current_model)
+        
+        if not current_healthy:
+            logger.warning(f"Current model {self.current_model} is unhealthy")
+            model_info = self.available_models[self.current_model]
+            
+            if model_info.error_count > 3:
+                logger.warning(f"Model {self.current_model} has {model_info.error_count} errors, attempting fallback")
+                await self.auto_fallback()
+    
+    async def _check_fallback_models(self):
+        """Check fallback models periodically."""
+        for model_name in self.fallback_models:
+            if model_name != self.current_model:
+                await self._check_model_health(model_name)
     
     def get_model_status(self) -> Dict[str, Any]:
         """Get status of all models."""

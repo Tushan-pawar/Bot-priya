@@ -1,6 +1,7 @@
 """Self-optimization logging and analysis system."""
 import json
 import asyncio
+import aiofiles
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -55,12 +56,15 @@ class SelfOptimizationLogger:
         self.failed_responses: List[FailedResponse] = []
         self.unclear_queries: List[UnclearQuery] = []
         self.insights: List[OptimizationInsight] = []
+        self._background_task = None
         
         # Load existing data
         self._load_data()
-        
-        # Start background analysis
-        asyncio.create_task(self._background_analysis())
+    
+    def start_background_analysis(self):
+        """Start background analysis task."""
+        if self._background_task is None:
+            self._background_task = asyncio.create_task(self._background_analysis())
     
     def _load_data(self):
         """Load existing optimization data."""
@@ -116,9 +120,9 @@ class SelfOptimizationLogger:
         
         self.failed_responses.append(failed_response)
         
-        # Append to file
-        with open(self.failed_responses_file, 'a') as f:
-            f.write(json.dumps(asdict(failed_response)) + '\n')
+        # Append to file asynchronously
+        async with aiofiles.open(self.failed_responses_file, 'a') as f:
+            await f.write(json.dumps(asdict(failed_response)) + '\n')
         
         logger.warning(f"Failed response logged: {failure_reason}")
     
@@ -144,9 +148,9 @@ class SelfOptimizationLogger:
         
         self.unclear_queries.append(unclear_query)
         
-        # Append to file
-        with open(self.unclear_queries_file, 'a') as f:
-            f.write(json.dumps(asdict(unclear_query)) + '\n')
+        # Append to file asynchronously
+        async with aiofiles.open(self.unclear_queries_file, 'a') as f:
+            await f.write(json.dumps(asdict(unclear_query)) + '\n')
         
         logger.info(f"Unclear query logged: {query[:50]}... (confidence: {confidence_score})")
     
@@ -164,19 +168,18 @@ class SelfOptimizationLogger:
     
     async def _analyze_patterns(self):
         """Analyze patterns in failed responses and unclear queries."""
-        # Analyze failed responses
-        await self._analyze_failed_responses()
-        
-        # Analyze unclear queries
-        await self._analyze_unclear_queries()
-        
-        # Save insights
+        await asyncio.gather(
+            self._analyze_failed_responses(),
+            self._analyze_unclear_queries()
+        )
         await self._save_insights()
     
     async def _analyze_failed_responses(self):
         """Analyze patterns in failed responses."""
         if len(self.failed_responses) < 10:
             return
+        
+        await asyncio.sleep(0)  # Yield control to event loop
         
         # Get recent failures (last 24 hours)
         cutoff = datetime.now() - timedelta(hours=24)
@@ -203,7 +206,7 @@ class SelfOptimizationLogger:
                     issue=f"Frequent failure: {reason}",
                     suggested_fix=self._suggest_fix_for_failure(reason),
                     priority="high" if count >= 10 else "medium",
-                    affected_users=list(set(f.user_id for f in recent_failures if f.failure_reason == reason)),
+                    affected_users=list({f.user_id for f in recent_failures if f.failure_reason == reason}),
                     frequency=count
                 )
                 
@@ -215,6 +218,8 @@ class SelfOptimizationLogger:
         """Analyze patterns in unclear queries."""
         if len(self.unclear_queries) < 5:
             return
+        
+        await asyncio.sleep(0)  # Yield control to event loop
         
         # Get recent unclear queries (last 24 hours)
         cutoff = datetime.now() - timedelta(hours=24)
@@ -236,7 +241,7 @@ class SelfOptimizationLogger:
                 issue="High number of low-confidence responses",
                 suggested_fix="Improve training data or add clarification prompts",
                 priority="medium",
-                affected_users=list(set(q.user_id for q in low_confidence)),
+                affected_users=list({q.user_id for q in low_confidence}),
                 frequency=len(low_confidence)
             )
             
@@ -263,8 +268,8 @@ class SelfOptimizationLogger:
     async def _save_insights(self):
         """Save insights to file."""
         try:
-            with open(self.insights_file, 'w') as f:
-                json.dump([asdict(insight) for insight in self.insights], f, indent=2)
+            async with aiofiles.open(self.insights_file, 'w') as f:
+                await f.write(json.dumps([asdict(insight) for insight in self.insights], indent=2))
         except Exception as e:
             logger.error(f"Failed to save insights: {e}")
     
@@ -297,14 +302,14 @@ class SelfOptimizationLogger:
         """Rewrite data files after cleanup."""
         try:
             # Rewrite failed responses
-            with open(self.failed_responses_file, 'w') as f:
+            async with aiofiles.open(self.failed_responses_file, 'w') as f:
                 for failure in self.failed_responses:
-                    f.write(json.dumps(asdict(failure)) + '\n')
+                    await f.write(json.dumps(asdict(failure)) + '\n')
             
             # Rewrite unclear queries
-            with open(self.unclear_queries_file, 'w') as f:
+            async with aiofiles.open(self.unclear_queries_file, 'w') as f:
                 for query in self.unclear_queries:
-                    f.write(json.dumps(asdict(query)) + '\n')
+                    await f.write(json.dumps(asdict(query)) + '\n')
             
             # Save insights
             await self._save_insights()

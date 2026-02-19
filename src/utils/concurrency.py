@@ -34,17 +34,17 @@ class ConcurrencyManager:
                 self.active_requests.pop(request_id, None)
     
     @asynccontextmanager
-    async def voice_exclusive(self, user_id: str, timeout: int = 30):
+    async def voice_exclusive(self, user_id: str):
         """Exclusive voice channel access."""
         try:
-            await asyncio.wait_for(self.voice_lock.acquire(), timeout=timeout)
-            if self.voice_user and self.voice_user != user_id:
-                raise RuntimeError(f"Voice channel busy with user {self.voice_user}")
-            
-            self.voice_user = user_id
-            logger.info(f"Voice lock acquired by {user_id}")
-            yield
-            
+            async with asyncio.timeout(30):
+                await self.voice_lock.acquire()
+                if self.voice_user and self.voice_user != user_id:
+                    raise RuntimeError(f"Voice channel busy with user {self.voice_user}")
+                
+                self.voice_user = user_id
+                logger.info(f"Voice lock acquired by {user_id}")
+                yield
         except asyncio.TimeoutError:
             raise RuntimeError("Voice channel lock timeout")
         finally:

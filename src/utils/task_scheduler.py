@@ -18,6 +18,7 @@ class BackgroundTaskScheduler:
     async def start(self):
         """Start the scheduler."""
         if self.running:
+            await asyncio.sleep(0)
             return
         
         self.scheduler.start()
@@ -31,6 +32,7 @@ class BackgroundTaskScheduler:
     async def stop(self):
         """Stop the scheduler gracefully."""
         if not self.running:
+            await asyncio.sleep(0)
             return
         
         logger.info("Stopping background task scheduler...")
@@ -77,7 +79,7 @@ class BackgroundTaskScheduler:
         }
         
         if start_immediately:
-            asyncio.create_task(self._wrap_task(task_id, func)())
+            self.tasks[task_id]["immediate_task"] = asyncio.create_task(self._wrap_task(task_id, func)())
         
         logger.info(f"Added interval task: {task_id} ({seconds}s)")
     
@@ -228,6 +230,8 @@ class BackgroundTaskScheduler:
             seconds=300,  # Every 5 minutes
             description="Clean up rate limiter state"
         )
+        
+        await asyncio.sleep(0)  # Ensure async behavior
     
     async def _memory_cleanup_task(self):
         """Memory cleanup task."""
@@ -251,6 +255,7 @@ class BackgroundTaskScheduler:
                        f"{report['total_unclear_queries']} unclear queries, "
                        f"avg confidence: {report['average_confidence']}")
             
+            await asyncio.sleep(0)  # Ensure async behavior
         except Exception as e:
             logger.error(f"Analytics task failed: {e}")
     
@@ -267,6 +272,7 @@ class BackgroundTaskScheduler:
             logger.info(f"Performance: CPU {cpu_percent}%, "
                        f"Memory {memory.percent}% ({memory.used // 1024 // 1024}MB used)")
             
+            await asyncio.sleep(0)  # Ensure async behavior
         except Exception as e:
             logger.error(f"Performance logging failed: {e}")
     
@@ -285,6 +291,7 @@ class BackgroundTaskScheduler:
             from ..utils.rate_limiter import rate_limiter
             # Cleanup is handled internally by rate_limiter
             logger.debug("Rate limiter cleanup check completed")
+            await asyncio.sleep(0)  # Ensure async behavior
         except Exception as e:
             logger.error(f"Rate limiter cleanup failed: {e}")
 

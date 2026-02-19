@@ -18,7 +18,10 @@ from discord.ext import commands
 from src.config.settings import config
 from src.utils.logging import logger, perf_logger
 from src.memory.persistent_memory import memory_system
-from src.voice.streaming_voice import streaming_voice
+from .voice.realtime import realtime_voice
+from .core.human_behaviors import human_behaviors
+from .utils.deployment import production_manager
+from .utils.performance import system_optimizer
 from src.skills.skill_manager import skill_manager
 from src.discord_integration.native_features import setup_discord_integration
 from src.dashboard.admin_dashboard import admin_dashboard
@@ -61,41 +64,56 @@ class PriyaAIAssistant(commands.Bot):
         signal.signal(signal.SIGTERM, signal_handler)
     
     async def setup_hook(self):
-        """Setup all components with enhanced features."""
+        """Setup all components with enhanced optimization."""
         logger.info("🚀 Starting Priya AI Assistant Platform v2.0...")
         
         try:
+            # Start system optimization
+            system_optimizer.startup_optimizer.log_step("System optimization start")
+            await system_optimizer.start_optimization()
+            
+            # Start production monitoring
+            await production_manager.start_monitoring(self)
+            system_optimizer.startup_optimizer.log_step("Production monitoring")
+            
             # Initialize memory system
             logger.info("📚 Initializing memory system...")
-            # Memory system is already initialized
+            system_optimizer.startup_optimizer.log_step("Memory system")
             
             # Load skills
             logger.info("🛠️ Loading skills...")
             await skill_manager.load_skills()
+            system_optimizer.startup_optimizer.log_step("Skills loaded")
             
             # Setup Discord integration
             logger.info("🤖 Setting up Discord integration...")
             self.discord_integration = setup_discord_integration(self)
             await self.discord_integration.setup_slash_commands()
+            system_optimizer.startup_optimizer.log_step("Discord integration")
             
-            # Setup voice callbacks
+            # Setup voice callbacks (optimized)
             logger.info("🎤 Setting up voice processing...")
-            streaming_voice.on_speech_start = self._on_speech_start
-            streaming_voice.on_speech_end = self._on_speech_end
-            streaming_voice.on_final_transcript = self._on_final_transcript
+            realtime_voice.transcript_callback = self._on_voice_transcript
+            realtime_voice.response_callback = self._on_voice_response
+            system_optimizer.startup_optimizer.log_step("Voice setup")
             
-            # Warm up models
+            # Warm up models (lazy loading)
             logger.info("🧠 Warming up AI models...")
-            await self._warmup_models()
+            asyncio.create_task(self._warmup_models())  # Non-blocking
             
             # Start background scheduler
             logger.info("⏰ Starting background task scheduler...")
             await task_scheduler.start()
+            system_optimizer.startup_optimizer.log_step("Task scheduler")
             
             # Start dashboard in background
             logger.info("🌐 Starting admin dashboard...")
             asyncio.create_task(admin_dashboard.start())
             
+            # Start proactive conversation checker
+            asyncio.create_task(self._proactive_conversation_loop())
+            
+            system_optimizer.startup_optimizer.log_step("Startup complete")
             logger.info("✅ All components initialized successfully!")
             
         except Exception as e:
@@ -227,13 +245,17 @@ class PriyaAIAssistant(commands.Bot):
             await message.reply(random.choice(fallback_responses))
     
     async def _process_conversation(self, message, user_id: str, server_id: str, content: str):
-        """Process conversation with enhanced features."""
+        """Process conversation with enhanced human behaviors."""
         start_time = asyncio.get_event_loop().time()
         
         try:
+            # Calculate natural delay
+            natural_delay = human_behaviors.calculate_natural_delay(content, user_id)
+            
             # Check for tool usage requests
             tool_response = await self._check_tool_usage(content, user_id, server_id)
             if tool_response:
+                await asyncio.sleep(natural_delay)
                 await message.reply(tool_response)
                 return
             
@@ -257,14 +279,15 @@ class PriyaAIAssistant(commands.Bot):
             # Try to execute matching skill
             skill_response = await skill_manager.auto_execute(skill_context)
             if skill_response:
+                await asyncio.sleep(natural_delay)
                 await message.reply(skill_response)
                 return
             
-            # Retrieve relevant memories
+            # Retrieve relevant memories (optimized)
             memories = await memory_system.retrieve_memory(
                 user_id, 
                 content, 
-                limit=5,
+                limit=3,  # Reduced for speed
                 server_id=server_id
             )
             
@@ -276,6 +299,11 @@ class PriyaAIAssistant(commands.Bot):
             
             # Get user context from core personality
             user_ctx, priya_state, activity = priya_core.get_context_for_response(user_id)
+            
+            # Get response style from human behaviors
+            response_style = human_behaviors.get_contextual_response_style(
+                user_id, content, datetime.now().hour
+            )
             
             # Build comprehensive system prompt
             base_prompt = f"""You are Priya, a 23-year-old Indian AI assistant with a warm, friendly personality.
@@ -289,28 +317,34 @@ Energy: {priya_state.energy}
 User relationship: {user_ctx.friendship_level}/100 friendship level
 {memory_context}
 
-{tool_engine.get_tools_prompt()}
+Response style: Formality {response_style['formality']:.1f}, Enthusiasm {response_style['enthusiasm']:.1f}
 
 Respond naturally in 1-2 sentences. Use Hinglish when appropriate."""
             
             # Security: Protect system prompt
             protected_prompt = security_hardening.protect_system_prompt(base_prompt, content)
             
-            # Context compression if needed
-            full_context = f"{protected_prompt}\n\nUser: {content}"
-            compressed_context = await context_compressor.compress_context(
-                user_id, full_context, server_id
-            )
-            
-            # Generate response
+            # Generate response with timing
             messages = [
-                {"role": "system", "content": compressed_context},
+                {"role": "system", "content": protected_prompt},
                 {"role": "user", "content": content}
             ]
             
-            response = await llm_system.generate_response(messages)
+            # Show typing with natural delay
+            async with message.channel.typing():
+                await asyncio.sleep(natural_delay)
+                
+                response = await llm_system.generate_response(messages)
             
             if response:
+                # Apply human behaviors
+                if human_behaviors.should_use_emoji(content, user_ctx.friendship_level):
+                    emoji = human_behaviors.get_natural_emoji(content, priya_state.mood)
+                    response = f"{response} {emoji}"
+                
+                response = human_behaviors.add_natural_speech_patterns(response, user_ctx.friendship_level)
+                response = human_behaviors.add_personality_quirks(response, user_ctx.friendship_level)
+                
                 # Security: Check output safety
                 is_safe, safe_response = security_hardening.check_output_safety(response)
                 final_response = safe_response if not is_safe else response
@@ -324,26 +358,16 @@ Respond naturally in 1-2 sentences. Use Hinglish when appropriate."""
                     importance=0.5
                 )
                 
-                # Update core personality
+                # Update core personality and human behaviors
                 await priya_core.update_after_interaction(user_id, content, final_response)
-                
-                # Send response with typing simulation
-                async with message.channel.typing():
-                    delay = min(len(final_response) * 0.03, 3) * response_decision.get('delay_multiplier', 1.0)
-                    await asyncio.sleep(delay)
+                human_behaviors.update_emotional_memory(user_id, content, final_response)
                 
                 await message.reply(final_response)
                 
                 # Log performance
                 duration = asyncio.get_event_loop().time() - start_time
-                perf_logger.log_request(
-                    user_id, 
-                    model_swapper.current_model or "unknown", 
-                    duration, 
-                    True,
-                    len(content) + len(final_response),  # Approximate token usage
-                    "chat"
-                )
+                system_optimizer.resource_monitor.log_response_time(duration, "conversation")
+                production_manager.health_monitor.log_response_time(duration)
                 
             else:
                 # Log failed response
@@ -358,7 +382,8 @@ Respond naturally in 1-2 sentences. Use Hinglish when appropriate."""
                 
         except Exception as e:
             duration = asyncio.get_event_loop().time() - start_time
-            perf_logger.log_request(user_id, "unknown", duration, False)
+            system_optimizer.resource_monitor.log_response_time(duration, "conversation_error")
+            production_manager.health_monitor.log_error(str(e))
             logger.error(f"Conversation processing error: {e}")
             raise
     
@@ -414,24 +439,85 @@ Respond naturally in 1-2 sentences. Use Hinglish when appropriate."""
         rate_limiter.add_admin_override(user_id, duration)
         await ctx.send(f"✅ Rate limit override added for user {user_id} for {duration} seconds")
     
-    async def on_voice_state_update(self, member, before, after):
-        """Handle voice state updates for auto-join."""
-        if self.discord_integration:
-            await self.discord_integration.handle_voice_state_update(member, before, after)
+    @commands.command()
+    async def voice_start(self, ctx):
+        """Start real-time voice conversation."""
+        if not ctx.author.voice:
+            await ctx.send("Join a voice channel first! 🎤")
+            return
+        
+        user_id = str(ctx.author.id)
+        
+        try:
+            # Connect to voice channel
+            voice_client = await ctx.author.voice.channel.connect()
+            
+            # Start real-time voice processing
+            success = realtime_voice.start_listening(
+                transcript_callback=self._on_voice_transcript,
+                response_callback=self._on_voice_response
+            )
+            
+            if success:
+                await ctx.send("🎤 Real-time voice conversation started! Just speak naturally.")
+                logger.info(f"Real-time voice started for {user_id}")
+            else:
+                await ctx.send("❌ Voice features not available. Install webrtcvad and pyaudio.")
+                await voice_client.disconnect()
+                
+        except Exception as e:
+            logger.error(f"Voice start failed: {e}")
+            await ctx.send(f"Failed to start voice: {str(e)[:100]}")
     
-    async def _on_speech_start(self, user_id: str):
-        """Handle speech start."""
-        logger.info(f"Speech started for user {user_id}")
-        await streaming_voice.interrupt_speech()
+    async def _proactive_conversation_loop(self):
+        """Check for proactive conversation opportunities."""
+        while True:
+            try:
+                opportunity = await human_behaviors.check_proactive_opportunities(self.active_users)
+                
+                if opportunity:
+                    user_id = opportunity['user_id']
+                    message = opportunity['message']
+                    
+                    # Find user's DM channel or last server channel
+                    user = self.get_user(int(user_id))
+                    if user:
+                        try:
+                            # Try to send DM
+                            await user.send(message)
+                            logger.info(f"Sent proactive message to {user_id}: {message}")
+                        except:
+                            # If DM fails, skip for now
+                            pass
+                
+                await asyncio.sleep(300)  # Check every 5 minutes
+                
+            except Exception as e:
+                logger.error(f"Proactive conversation error: {e}")
+                await asyncio.sleep(600)  # Wait longer on error
     
-    async def _on_speech_end(self, user_id: str):
-        """Handle speech end."""
-        logger.info(f"Speech ended for user {user_id}")
+    async def _on_voice_transcript(self, transcript: str):
+        """Handle voice transcript from real-time voice."""
+        logger.info(f"Voice transcript: {transcript}")
+        # This would integrate with voice conversation logic
     
-    async def _on_final_transcript(self, user_id: str, transcript: str):
-        """Handle final transcript from voice."""
-        logger.info(f"Final transcript from {user_id}: {transcript}")
-        # Enhanced voice processing would go here
+    async def _on_voice_response(self, transcript: str) -> str:
+        """Generate response for voice input."""
+        try:
+            # Use same conversation logic but optimized for voice
+            user_ctx, priya_state, activity = priya_core.get_context_for_response("voice_user")
+            
+            messages = [
+                {"role": "system", "content": f"You are Priya. Respond to voice input briefly and naturally. Current mood: {priya_state.mood}"},
+                {"role": "user", "content": transcript}
+            ]
+            
+            response = await llm_system.generate_response(messages)
+            return response or "I didn't catch that, could you repeat?"
+            
+        except Exception as e:
+            logger.error(f"Voice response error: {e}")
+            return "Sorry, I'm having trouble understanding right now."
     
     async def graceful_shutdown(self):
         """Gracefully shutdown all components."""

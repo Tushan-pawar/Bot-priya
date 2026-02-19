@@ -201,8 +201,8 @@ class FocusTimerSkill(BaseSkill):
                 seconds = duration * 60
                 time_str = f"{duration} minute{'s' if duration > 1 else ''}"
             
-            # Start timer (simplified - in production, use proper task scheduling)
-            asyncio.create_task(self._timer_reminder(context, seconds, time_str))
+            # Start timer - save task to prevent garbage collection
+            self._timer_task = asyncio.create_task(self._timer_reminder(context, seconds, time_str))
             
             return f"⏰ Timer set for {time_str}! I'll remind you when it's done. Stay focused! 💪"
         
