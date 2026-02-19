@@ -17,6 +17,9 @@ src/
 ### Key Features
 - ✅ **Modular Architecture** - Clean separation of concerns
 - ✅ **LLM Fallback System** - 20+ AI providers with automatic failover
+- ✅ **Vector Memory System** - FAISS-powered semantic search with embeddings
+- ✅ **Stateless Processing** - Token-aware rolling context windows
+- ✅ **Automatic Compression** - Smart summarization when context exceeds limits
 - ✅ **Timeout Handling** - Robust timeout management for all operations
 - ✅ **Concurrency Control** - Voice locks and request limiting
 - ✅ **Memory Management** - Automatic cleanup and memory monitoring
@@ -186,17 +189,37 @@ async with concurrency_manager.request_slot(user_id, "message"):
 
 ## 💾 Memory Management
 
-### Automatic Cleanup
-- Old conversation data removal
-- Memory usage monitoring
-- Configurable cleanup intervals
-- Garbage collection optimization
+### Vector-Powered Semantic Memory
+- **FAISS Index**: Fast similarity search (<50ms)
+- **Sentence Transformers**: 384-dim embeddings
+- **SQLite + aiosqlite**: Async persistent storage
+- **Token-aware**: Respects context window limits
+
+### Stateless Architecture
+```python
+# No in-memory conversation storage
+# Each message retrieves relevant context via vector search
+history = await memory_system.get_relevant_history(
+    user_id, 
+    current_message, 
+    max_tokens=2000
+)
+```
+
+### Automatic Compression
+- Summarizes old conversations when exceeding token limits
+- Stores summaries in vector DB for future retrieval
+- Keeps recent messages in full detail
+- Dynamic context window based on relevance
 
 ### Data Persistence
-- JSON-based storage
+- Vector embeddings stored in SQLite
+- FAISS index rebuilt on startup
 - Atomic file operations
-- Backup and recovery
-- Data migration support
+- Automatic cleanup (30-day retention)
+- Backup and recovery support
+
+See [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) for detailed architecture.
 
 ## 🧪 Testing & Development
 

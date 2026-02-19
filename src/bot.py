@@ -14,6 +14,7 @@ from .utils.concurrency import concurrency_manager, with_timeout
 from .core.personality import priya_core
 from .models.llm_fallback import llm_system
 from .engines.voice import voice_engine
+from .memory.context_compression import context_compressor
 
 # Constants
 SEPARATOR_LINE = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -274,23 +275,18 @@ class PriyaBot(commands.Bot):
             
             # Use concurrency control
             async with concurrency_manager.request_slot(user_id, "message"):
-                # Get context for response
-                user_ctx, priya_state, activity = priya_core.get_context_for_response(user_id)
+                # Get context for response (immutable copies)
+                user_ctx, priya_state, activity = await priya_core.get_context_for_response(user_id)
                 
                 # Build system prompt
                 system_prompt = priya_core.personality_engine.build_system_prompt(
                     user_ctx, priya_state, activity
                 )
                 
-                # Get conversation history
-                history = []
-                if user_id in priya_core.memory_system.conversation_history:
-                    recent_history = priya_core.memory_system.conversation_history[user_id][-5:]
-                    for conv in recent_history:
-                        history.extend([
-                            {"role": "user", "content": conv["user"]},
-                            {"role": "assistant", "content": conv["assistant"]}
-                        ])
+                # Get relevant history using vector search with token limits
+                history = await priya_core.memory_system.get_relevant_history(
+                    user_id, message.content, max_tokens=2000
+                )
                 
                 # Add current message
                 messages = [
@@ -298,6 +294,9 @@ class PriyaBot(commands.Bot):
                     *history,
                     {"role": "user", "content": message.content}
                 ]
+                
+                # Compress if needed
+                messages = await context_compressor.compress_context(user_id, messages)
                 
                 # Show typing indicator with reduced delay
                 async with message.channel.typing():

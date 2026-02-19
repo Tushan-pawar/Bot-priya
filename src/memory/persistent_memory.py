@@ -12,23 +12,20 @@ import faiss
 from ..utils.logging import logger
 
 class MemorySystem:
-    """Persistent memory with vector search capabilities."""
+    """Thread-safe persistent memory with vector search."""
     
     def __init__(self, db_path: str = "data/memory.db", vector_dim: int = 384):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(exist_ok=True)
         self.vector_dim = vector_dim
         self._lock = asyncio.Lock()
-        
-        # Initialize embedding model in thread pool
-        self.encoder = None
+        self._db_lock = asyncio.Lock()
         self._encoder_lock = asyncio.Lock()
         
-        # Initialize FAISS index
+        self.encoder = None
         self.index = faiss.IndexFlatIP(vector_dim)
         self.memory_map = {}
         
-        # Initialize in background - save task to prevent garbage collection
         self._init_task = asyncio.create_task(self._async_init())
     
     async def _async_init(self):
@@ -57,7 +54,8 @@ class MemorySystem:
                     content TEXT NOT NULL,
                     metadata TEXT,
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    importance REAL DEFAULT 0.5
+                    importance REAL DEFAULT 0.5,
+                    embedding BLOB
                 )
             """)
             
@@ -90,17 +88,26 @@ class MemorySystem:
         metadata: Optional[Dict] = None,
         importance: float = 0.5
     ) -> int:
-        """Save memory with async optimization."""
+        """Thread-safe save with vector embedding."""
         try:
-            # Quick async save without heavy vector operations
-            async with aiosqlite.connect(self.db_path) as conn:
-                cursor = await conn.execute("""
-                    INSERT INTO memories (user_id, server_id, content, metadata, importance)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (user_id, server_id, content, json.dumps(metadata or {}), importance))
-                
-                memory_id = cursor.lastrowid
-                await conn.commit()
+            await self._init_encoder()
+            loop = asyncio.get_event_loop()
+            embedding = await loop.run_in_executor(None, lambda: self.encoder.encode(content))
+            embedding_blob = embedding.astype(np.float32).tobytes()
+            
+            async with self._db_lock:
+                async with aiosqlite.connect(self.db_path) as conn:
+                    cursor = await conn.execute("""
+                        INSERT INTO memories (user_id, server_id, content, metadata, importance, embedding)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (user_id, server_id, content, json.dumps(metadata or {}), importance, embedding_blob))
+                    
+                    memory_id = cursor.lastrowid
+                    await conn.commit()
+            
+            async with self._lock:
+                self.index.add(embedding.reshape(1, -1))
+                self.memory_map[self.index.ntotal - 1] = memory_id
             
             return memory_id
             
@@ -115,40 +122,49 @@ class MemorySystem:
         limit: int = 5,
         server_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Retrieve memories with fast text search."""
+        """Thread-safe retrieval using vector similarity search."""
         try:
-            # Fast text-based search instead of vector similarity
-            async with aiosqlite.connect(self.db_path) as conn:
-                # Simple keyword matching
-                query_words = query.lower().split()
-                like_conditions = ' OR '.join(['content LIKE ?' for _ in query_words])
-                like_params = [f'%{word}%' for word in query_words]
-                
-                sql = f"""
-                    SELECT content, metadata, timestamp, importance
-                    FROM memories 
-                    WHERE user_id = ? AND ({like_conditions})
-                    ORDER BY importance DESC, timestamp DESC
-                    LIMIT ?
-                """
-                
-                params = [user_id] + like_params + [limit]
-                if server_id:
-                    sql = sql.replace('WHERE user_id = ?', 'WHERE user_id = ? AND (server_id = ? OR server_id IS NULL)')
-                    params = [user_id, server_id] + like_params + [limit]
-                
-                async with conn.execute(sql, params) as cursor:
-                    results = []
-                    async for row in cursor:
-                        content, metadata_str, timestamp, importance = row
-                        results.append({
-                            'content': content,
-                            'metadata': json.loads(metadata_str) if metadata_str else {},
-                            'timestamp': timestamp,
-                            'importance': importance,
-                            'similarity': 0.8  # Approximate similarity
-                        })
-                    return results
+            await self._init_encoder()
+            loop = asyncio.get_event_loop()
+            query_embedding = await loop.run_in_executor(None, lambda: self.encoder.encode(query))
+            
+            async with self._lock:
+                if self.index.ntotal == 0:
+                    return []
+                k = min(limit * 3, self.index.ntotal)
+                distances, indices = self.index.search(query_embedding.reshape(1, -1).astype(np.float32), k)
+                memory_ids = [self.memory_map[idx] for idx in indices[0] if idx in self.memory_map]
+            
+            async with self._db_lock:
+                async with aiosqlite.connect(self.db_path) as conn:
+                    placeholders = ','.join('?' * len(memory_ids))
+                    sql = f"""
+                        SELECT id, content, metadata, timestamp, importance
+                        FROM memories 
+                        WHERE id IN ({placeholders}) AND user_id = ?
+                    """
+                    params = memory_ids + [user_id]
+                    
+                    if server_id:
+                        sql += " AND (server_id = ? OR server_id IS NULL)"
+                        params.append(server_id)
+                    
+                    async with conn.execute(sql, params) as cursor:
+                        results = []
+                        id_to_similarity = {memory_ids[i]: float(distances[0][i]) for i in range(len(memory_ids))}
+                        
+                        async for row in cursor:
+                            mem_id, content, metadata_str, timestamp, importance = row
+                            results.append({
+                                'content': content,
+                                'metadata': json.loads(metadata_str) if metadata_str else {},
+                                'timestamp': timestamp,
+                                'importance': importance,
+                                'similarity': id_to_similarity.get(mem_id, 0.0)
+                            })
+                        
+                        results.sort(key=lambda x: x['similarity'], reverse=True)
+                        return results[:limit]
                 
         except Exception as e:
             logger.error(f"Failed to retrieve memory: {e}")

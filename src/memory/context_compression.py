@@ -22,56 +22,35 @@ class ContextCompressor:
     async def compress_context(
         self, 
         user_id: str, 
-        current_context: str,
+        messages: List[Dict[str, str]],
         server_id: Optional[str] = None
-    ) -> str:
-        """Compress context if it exceeds token limit."""
-        current_tokens = self.count_tokens(current_context)
+    ) -> List[Dict[str, str]]:
+        """Compress messages if they exceed token limit."""
+        total_tokens = sum(self.count_tokens(msg.get('content', '')) for msg in messages)
         
-        if current_tokens <= self.max_tokens:
-            return current_context
+        if total_tokens <= self.max_tokens:
+            return messages
         
-        logger.info(f"Context compression needed: {current_tokens} tokens > {self.max_tokens}")
+        logger.info(f"Compressing context: {total_tokens} > {self.max_tokens} tokens")
         
-        # Get existing summaries
-        summaries = await self._get_existing_summaries(user_id, server_id)
+        system_msg = [m for m in messages if m.get('role') == 'system']
+        user_msgs = [m for m in messages if m.get('role') != 'system']
         
-        # Split context into chunks
-        chunks = self._split_context(current_context)
+        if len(user_msgs) <= 2:
+            return messages
         
-        # Compress older chunks
-        compressed_chunks = []
-        remaining_tokens = self.max_tokens
+        recent_msgs = user_msgs[-2:]
+        old_msgs = user_msgs[:-2]
         
-        # Always keep the most recent chunk
-        if chunks:
-            recent_chunk = chunks[-1]
-            recent_tokens = self.count_tokens(recent_chunk)
-            compressed_chunks.append(recent_chunk)
-            remaining_tokens -= recent_tokens
+        old_text = '\n'.join([f"{m['role']}: {m['content']}" for m in old_msgs])
+        summary = await self._create_summary(old_text)
         
-        # Add summaries if they fit
-        summary_text = "\n".join(summaries)
-        summary_tokens = self.count_tokens(summary_text)
+        if summary:
+            await self._save_summary(user_id, summary, server_id)
+            summary_msg = {'role': 'system', 'content': f"Previous conversation: {summary}"}
+            return system_msg + [summary_msg] + recent_msgs
         
-        if summary_tokens < remaining_tokens * 0.5:  # Use max 50% for summaries
-            compressed_chunks.insert(0, f"Previous conversation summary:\n{summary_text}")
-            remaining_tokens -= summary_tokens
-        
-        # Add older chunks or create new summaries
-        for chunk in reversed(chunks[:-1]):  # Skip the most recent chunk
-            chunk_tokens = self.count_tokens(chunk)
-            
-            if chunk_tokens < remaining_tokens:
-                compressed_chunks.insert(-1, chunk)  # Insert before recent chunk
-                remaining_tokens -= chunk_tokens
-            else:
-                # Create summary for this chunk
-                summary = await self._create_summary(chunk)
-                if summary:
-                    await self._save_summary(user_id, summary, server_id)
-        
-        return "\n\n".join(compressed_chunks)
+        return system_msg + recent_msgs
     
     def _split_context(self, context: str) -> List[str]:
         """Split context into logical chunks."""
