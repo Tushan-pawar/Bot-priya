@@ -290,6 +290,7 @@ class MemorySystem:
     async def _auto_save(self):
         """Auto-save on mutation (non-blocking)."""
         self._save_task = asyncio.create_task(self.save_memory())
+        await asyncio.sleep(0)
     
     async def save_memory(self, force: bool = False):
         """Thread-safe save with atomic write."""
@@ -464,9 +465,13 @@ class PriyaCore:
         self.personality_engine = PersonalityEngine()
         self.provider_scoring = ProviderScoring()
         self.priya_state = PriyaState()
+        self._background_task = None
         
-        # Start background tasks
-        self._background_task = asyncio.create_task(self._background_tasks())
+    async def start(self):
+        """Start background tasks."""
+        if self._background_task is None:
+            self._background_task = asyncio.create_task(self._background_tasks())
+        await asyncio.sleep(0)
     
     async def _background_tasks(self):
         """Background maintenance tasks."""
