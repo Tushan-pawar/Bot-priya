@@ -1,4 +1,5 @@
 """Discord native integration with slash commands and advanced features."""
+import asyncio
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -65,8 +66,10 @@ class DiscordIntegration:
             str(interaction.user.id), query, limit=5,
             server_id=str(interaction.guild.id) if interaction.guild else None
         )
-        message = "I don't have any memories matching that query." if not memories else None
-        await interaction.followup.send(message or embed=self._create_memory_embed(memories))
+        if not memories:
+            await interaction.followup.send("I don't have any memories matching that query.")
+        else:
+            await interaction.followup.send(embed=self._create_memory_embed(memories))
     
     async def _set_personality_handler(self, interaction: discord.Interaction, mode: str):
         """Handle personality change command."""
@@ -142,6 +145,8 @@ class DiscordIntegration:
         
         for cmd in [memory_search, set_personality, execute_skill, list_skills, set_autojoin]:
             self.bot.tree.add_command(cmd)
+        
+        await asyncio.sleep(0)  # Ensure async behavior
     
     async def _connect_and_listen(self, channel: discord.VoiceChannel, member_id: str, guild_name: str):
         """Connect to voice channel and start listening."""
